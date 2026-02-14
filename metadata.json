@@ -1,0 +1,5 @@
+{
+  "name": "RestoBot AI",
+  "description": "A WhatsApp-style AI reservation assistant powered by Gemini 2.5 Flash. It simulates a restaurant booking agent with structured data output.",
+  "requestFramePermissions": []
+}
