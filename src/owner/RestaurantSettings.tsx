@@ -59,199 +59,273 @@ const RestaurantSettings: React.FC<RestaurantSettingsProps> = ({ restaurantId, r
     applyPatch({ closedDates: list });
   };
 
-  return (
-    <div className="space-y-6">
-      <div className="space-y-3">
-        <h3 className="text-sm font-bold text-gray-900">Datos del restaurante</h3>
+  const openingHours = current.openingHours ?? [];
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2">
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Nombre</label>
+  const patchShift = (index: number, field: "start" | "end", value: string) => {
+    const next = openingHours.map((s) => ({ ...s }));
+    while (next.length <= index) {
+      next.push({ start: "00:00", end: "00:00" });
+    }
+    next[index][field] = value;
+    applyPatch({ openingHours: next });
+  };
+
+  return (
+    <div className="space-y-5">
+      <section className="bg-white border border-slate-200 rounded-lg p-4 space-y-4">
+        <div>
+          <h3 className="text-sm font-bold text-slate-900">Información general</h3>
+          <p className="text-xs text-slate-500">Datos públicos que verá el cliente durante la conversación.</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Nombre del restaurante</label>
             <input
               type="text"
               value={restaurantConfig.name}
               onChange={(e) => patchConfig({ name: e.target.value })}
-              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
             />
           </div>
-
-          <div className="col-span-2">
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Dirección</label>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Dirección</label>
             <input
               type="text"
               value={restaurantConfig.address}
               onChange={(e) => patchConfig({ address: e.target.value })}
-              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
             />
           </div>
-
-          <div className="col-span-2 sm:col-span-1">
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Teléfono</label>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Teléfono</label>
             <input
               type="text"
               value={restaurantConfig.phone}
               onChange={(e) => patchConfig({ phone: e.target.value })}
-              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
             />
           </div>
-
-          <div className="col-span-2 sm:col-span-1">
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Grace period (min)</label>
-            <input
-              type="number"
-              value={restaurantConfig.gracePeriodMin}
-              onChange={(e) => patchConfig({ gracePeriodMin: toInt(e.target.value) })}
-              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div className="col-span-2">
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Horario</label>
-            <input
-              type="text"
-              value={restaurantConfig.hours}
-              onChange={(e) => patchConfig({ hours: e.target.value })}
-              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div className="col-span-2">
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Turnos (texto)</label>
-            <input
-              type="text"
-              value={restaurantConfig.shifts}
-              onChange={(e) => patchConfig({ shifts: e.target.value })}
-              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div className="col-span-2">
-            <label className="block text-xs font-semibold text-gray-600 mb-1">No-show policy</label>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">No-show (texto corto)</label>
             <input
               type="text"
               value={restaurantConfig.noShowPolicy}
               onChange={(e) => patchConfig({ noShowPolicy: e.target.value })}
-              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
             />
           </div>
+        </div>
+      </section>
 
-          <div className="col-span-2 flex flex-wrap gap-3">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={restaurantConfig.hasTerrace}
-                onChange={(e) => patchConfig({ hasTerrace: e.target.checked })}
-              />
-              Terraza
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={restaurantConfig.hasHighChair}
-                onChange={(e) => patchConfig({ hasHighChair: e.target.checked })}
-              />
-              Tronas
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={restaurantConfig.petsAllowed}
-                onChange={(e) => patchConfig({ petsAllowed: e.target.checked })}
-              />
-              Mascotas
-            </label>
+      <section className="bg-white border border-slate-200 rounded-lg p-4 space-y-4">
+        <div>
+          <h3 className="text-sm font-bold text-slate-900">Horario y turnos</h3>
+          <p className="text-xs text-slate-500">Ajusta los turnos operativos que usa el motor de reservas.</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Comida inicia</label>
+            <input
+              type="time"
+              value={openingHours[0]?.start ?? "13:00"}
+              onChange={(e) => patchShift(0, "start", e.target.value)}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Comida termina</label>
+            <input
+              type="time"
+              value={openingHours[0]?.end ?? "16:00"}
+              onChange={(e) => patchShift(0, "end", e.target.value)}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Cena inicia</label>
+            <input
+              type="time"
+              value={openingHours[1]?.start ?? "20:00"}
+              onChange={(e) => patchShift(1, "start", e.target.value)}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Cena termina</label>
+            <input
+              type="time"
+              value={openingHours[1]?.end ?? "23:30"}
+              onChange={(e) => patchShift(1, "end", e.target.value)}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Horario en texto (chat)</label>
+            <input
+              type="text"
+              value={restaurantConfig.hours}
+              onChange={(e) => patchConfig({ hours: e.target.value })}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Turnos en texto (chat)</label>
+            <input
+              type="text"
+              value={restaurantConfig.shifts}
+              onChange={(e) => patchConfig({ shifts: e.target.value })}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+            />
           </div>
         </div>
-      </div>
+      </section>
 
-      <h3 className="text-sm font-bold text-gray-900">Motor de reservas</h3>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2 sm:col-span-1">
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Capacidad total</label>
-          <input
-            type="number"
-            value={current.totalCapacity}
-            onChange={(e) => applyPatch({ totalCapacity: toInt(e.target.value) })}
-            className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-          />
+      <section className="bg-white border border-slate-200 rounded-lg p-4 space-y-4">
+        <div>
+          <h3 className="text-sm font-bold text-slate-900">Experiencia del cliente</h3>
+          <p className="text-xs text-slate-500">Opciones que el asistente usará para responder preguntas frecuentes.</p>
         </div>
-
-        <div className="col-span-2 sm:col-span-1">
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Max party size</label>
-          <input
-            type="number"
-            value={current.maxPartySize}
-            onChange={(e) => applyPatch({ maxPartySize: toInt(e.target.value) })}
-            className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-          />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Cortesía llegada tarde (min)</label>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={restaurantConfig.gracePeriodMin}
+              onChange={(e) => patchConfig({ gracePeriodMin: toInt(e.target.value) })}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="sm:col-span-1 flex items-end">
+            <div className="w-full grid grid-cols-1 gap-2">
+              <label className="inline-flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm">
+                <span>Terraza disponible</span>
+                <input
+                  type="checkbox"
+                  checked={restaurantConfig.hasTerrace}
+                  onChange={(e) => patchConfig({ hasTerrace: e.target.checked })}
+                />
+              </label>
+              <label className="inline-flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm">
+                <span>Tronas</span>
+                <input
+                  type="checkbox"
+                  checked={restaurantConfig.hasHighChair}
+                  onChange={(e) => patchConfig({ hasHighChair: e.target.checked })}
+                />
+              </label>
+              <label className="inline-flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm">
+                <span>Mascotas permitidas</span>
+                <input
+                  type="checkbox"
+                  checked={restaurantConfig.petsAllowed}
+                  onChange={(e) => patchConfig({ petsAllowed: e.target.checked })}
+                />
+              </label>
+            </div>
+          </div>
         </div>
+      </section>
 
-        <div className="col-span-2 sm:col-span-1">
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Duración (min)</label>
-          <input
-            type="number"
-            value={current.standardDurationMin}
-            onChange={(e) => applyPatch({ standardDurationMin: toInt(e.target.value) })}
-            className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-          />
+      <section className="bg-white border border-slate-200 rounded-lg p-4 space-y-4">
+        <div>
+          <h3 className="text-sm font-bold text-slate-900">Motor de reservas</h3>
+          <p className="text-xs text-slate-500">Define capacidad, duración y normalización de horarios.</p>
         </div>
-
-        <div className="col-span-2 sm:col-span-1">
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Buffer (min)</label>
-          <input
-            type="number"
-            value={current.bufferMin}
-            onChange={(e) => applyPatch({ bufferMin: toInt(e.target.value) })}
-            className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-          />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Capacidad total (personas)</label>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={current.totalCapacity}
+              onChange={(e) => applyPatch({ totalCapacity: toInt(e.target.value) })}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Máximo por reserva</label>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={current.maxPartySize}
+              onChange={(e) => applyPatch({ maxPartySize: toInt(e.target.value) })}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Duración estándar (min)</label>
+            <input
+              type="number"
+              min={1}
+              step={5}
+              value={current.standardDurationMin}
+              onChange={(e) => applyPatch({ standardDurationMin: toInt(e.target.value) })}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Buffer entre mesas (min)</label>
+            <input
+              type="number"
+              min={0}
+              step={5}
+              value={current.bufferMin}
+              onChange={(e) => applyPatch({ bufferMin: toInt(e.target.value) })}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Intervalo de slot</label>
+            <select
+              value={String(current.slotIntervalMin)}
+              onChange={(e) => applyPatch({ slotIntervalMin: toInt(e.target.value) })}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white"
+            >
+              <option value="15">15 min</option>
+              <option value="30">30 min</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Redondeo de hora</label>
+            <select
+              value={current.slotRounding}
+              onChange={(e) => applyPatch({ slotRounding: e.target.value as SlotRoundingMode })}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white"
+            >
+              <option value="ceil">Al siguiente slot</option>
+              <option value="floor">Al slot anterior</option>
+              <option value="nearest">Al más cercano</option>
+            </select>
+          </div>
         </div>
+      </section>
 
-        <div className="col-span-2 sm:col-span-1">
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Slot interval</label>
-          <select
-            value={String(current.slotIntervalMin)}
-            onChange={(e) => applyPatch({ slotIntervalMin: toInt(e.target.value) })}
-            className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm bg-white"
-          >
-            <option value="15">15 min</option>
-            <option value="30">30 min</option>
-          </select>
+      <section className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
+        <div>
+          <h4 className="text-sm font-bold text-slate-900">Días cerrados</h4>
+          <p className="text-xs text-slate-500">Añade festivos o cierres puntuales. Toca una fecha para eliminarla.</p>
         </div>
-
-        <div className="col-span-2 sm:col-span-1">
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Slot rounding</label>
-          <select
-            value={current.slotRounding}
-            onChange={(e) => applyPatch({ slotRounding: e.target.value as SlotRoundingMode })}
-            className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm bg-white"
-          >
-            <option value="ceil">ceil</option>
-            <option value="floor">floor</option>
-            <option value="nearest">nearest</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <h4 className="text-sm font-bold text-gray-900">Closed dates</h4>
         <div className="flex items-center gap-2">
           <input
             type="date"
             value={closedDate}
             onChange={(e) => setClosedDate(e.target.value)}
-            className="border border-gray-200 rounded-md px-3 py-2 text-sm"
+            className="border border-slate-300 rounded-md px-3 py-2 text-sm"
           />
           <button
             onClick={addClosedDate}
-            className="px-3 py-2 rounded-md text-sm font-semibold border border-gray-200 hover:bg-gray-50"
+            className="px-3 py-2 rounded-md text-sm font-semibold border border-slate-300 hover:bg-slate-100"
           >
             Añadir
           </button>
         </div>
 
         {(current.closedDates ?? []).length === 0 ? (
-          <div className="text-sm text-gray-500 italic border border-dashed border-gray-200 rounded-md p-4">
+          <div className="text-sm text-slate-500 italic border border-dashed border-slate-300 rounded-md p-4">
             No hay días cerrados configurados.
           </div>
         ) : (
@@ -260,7 +334,7 @@ const RestaurantSettings: React.FC<RestaurantSettingsProps> = ({ restaurantId, r
               <button
                 key={d}
                 onClick={() => removeClosedDate(d)}
-                className="px-3 py-1.5 rounded-full text-xs font-semibold border border-gray-200 hover:bg-gray-50"
+                className="px-3 py-1.5 rounded-full text-xs font-semibold border border-slate-300 hover:bg-slate-100"
                 title="Quitar"
               >
                 {d}
@@ -268,8 +342,7 @@ const RestaurantSettings: React.FC<RestaurantSettingsProps> = ({ restaurantId, r
             ))}
           </div>
         )}
-        <p className="text-xs text-gray-500">Toca una fecha para quitarla.</p>
-      </div>
+      </section>
     </div>
   );
 };

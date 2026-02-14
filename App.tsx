@@ -10,6 +10,8 @@ import ConfigPanel from './components/ConfigPanel';
 import DebugPanel from './components/DebugPanel';
 import ChatBubble from './components/ChatBubble';
 import OwnerPanel from './src/owner/OwnerPanel';
+import OwnerLogin from './src/owner/OwnerLogin';
+import { ownerLogin, ownerLogout, ownerSession } from './services/auth/ownerAuth';
 
 const getRestaurantIdFromHash = (): string | null => {
   const h = window.location.hash || "";
@@ -17,6 +19,11 @@ const getRestaurantIdFromHash = (): string | null => {
   const m = h.match(/(?:^|[?#&])rid=([^&]+)/);
   if (m && m[1]) return decodeURIComponent(m[1]);
   return null;
+};
+
+const isOwnerHashRoute = (): boolean => {
+  const h = window.location.hash || "";
+  return h.startsWith("#/owner");
 };
 
 function getApiKey(): string {
@@ -70,7 +77,9 @@ const App: React.FC = () => {
   // UI State
   const [showConfig, setShowConfig] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
-  const [showOwner, setShowOwner] = useState(false);
+  const [isOwnerRoute, setIsOwnerRoute] = useState<boolean>(() => isOwnerHashRoute());
+  const [isOwnerAuthenticated, setIsOwnerAuthenticated] = useState<boolean>(false);
+  const [isOwnerAuthLoading, setIsOwnerAuthLoading] = useState<boolean>(true);
   
   // Last parsed data from assistant to show in DebugPanel
   const [lastParsedData, setLastParsedData] = useState<AssistantParsedResponse | null>(null);
@@ -93,6 +102,19 @@ const App: React.FC = () => {
     setRestaurantId(initialId);
   }, []); 
 
+  // Keep route and restaurant id in sync with hash.
+  useEffect(() => {
+    const onHashChange = () => {
+      setIsOwnerRoute(isOwnerHashRoute());
+      const fromHash = getRestaurantIdFromHash();
+      if (fromHash && RestaurantRepository.getById(fromHash)) {
+        setRestaurantId(fromHash);
+      }
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
   // Persist config changes per tenant
   useEffect(() => {
     if (!restaurantId) return;
@@ -113,14 +135,9 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!restaurantId) return;
     localStorage.setItem("resto_bot_active_restaurant", restaurantId);
-    // Keep minimal URL state (no router): #rid=<restaurantId>
-    if (restaurantId) {
-      const r = RestaurantRepository.getById(restaurantId);
-      const next = r
-        ? `#/owner/restaurants/${encodeURIComponent(r.slug)}?rid=${encodeURIComponent(restaurantId)}`
-        : `#rid=${encodeURIComponent(restaurantId)}`;
-      if (window.location.hash !== next) window.location.hash = next;
-    }
+    const rid = encodeURIComponent(restaurantId);
+    const next = isOwnerHashRoute() ? `#/owner?rid=${rid}` : `#/?rid=${rid}`;
+    if (window.location.hash !== next) window.location.hash = next;
     const cfg = RestaurantConfigRepository.get(restaurantId);
     setConfig(cfg);
 
@@ -152,6 +169,46 @@ const App: React.FC = () => {
     };
     setMessages([initialMsg]);
   }, [restaurantId]); 
+
+  const openOwnerPage = () => {
+    if (!restaurantId) return;
+    window.location.hash = `#/owner?rid=${encodeURIComponent(restaurantId)}`;
+  };
+
+  const openChatPage = () => {
+    if (!restaurantId) return;
+    window.location.hash = `#/?rid=${encodeURIComponent(restaurantId)}`;
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkAuth = async () => {
+      if (!isOwnerRoute) {
+        setIsOwnerAuthLoading(false);
+        return;
+      }
+      setIsOwnerAuthLoading(true);
+      const session = await ownerSession();
+      if (cancelled) return;
+      setIsOwnerAuthenticated(Boolean(session.authenticated));
+      setIsOwnerAuthLoading(false);
+    };
+    checkAuth();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOwnerRoute]);
+
+  const handleOwnerLogin = async (username: string, password: string): Promise<boolean> => {
+    const ok = await ownerLogin(username, password);
+    setIsOwnerAuthenticated(ok);
+    return ok;
+  };
+
+  const handleOwnerLogout = async () => {
+    await ownerLogout();
+    setIsOwnerAuthenticated(false);
+  };
 
 
   // --- Handlers ---
@@ -316,6 +373,27 @@ const App: React.FC = () => {
     }
   };
 
+  if (isOwnerRoute) {
+    if (isOwnerAuthLoading) {
+      return <div className="h-full w-full bg-gray-100 flex items-center justify-center text-gray-600">Cargando...</div>;
+    }
+    if (!isOwnerAuthenticated) {
+      return <OwnerLogin onLogin={handleOwnerLogin} />;
+    }
+    return (
+      <div className="h-full w-full bg-gray-100 overflow-hidden">
+        <OwnerPanel
+          isOpen={true}
+          standalone={true}
+          onClose={openChatPage}
+          onLogout={handleOwnerLogout}
+          activeRestaurantId={restaurantId}
+          onSelectRestaurantId={setRestaurantId}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="relative flex h-full w-full bg-[#E5DDD5] overflow-hidden">
       
@@ -345,9 +423,9 @@ const App: React.FC = () => {
           
           <div className="flex items-center space-x-2">
             <button 
-              onClick={() => setShowOwner(!showOwner)}
+              onClick={openOwnerPage}
               className="p-2 hover:bg-white/10 rounded-full transition"
-              title="Owner Panel"
+              title="Ir a panel del restaurante"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0z"></path>
@@ -440,18 +518,11 @@ const App: React.FC = () => {
         isOpen={showDebug} 
         onClose={() => setShowDebug(false)} 
       />
-      <OwnerPanel
-        isOpen={showOwner}
-        onClose={() => setShowOwner(false)}
-        activeRestaurantId={restaurantId}
-        onSelectRestaurantId={setRestaurantId}
-      />
-      
       {/* Overlay when panel is open on mobile */}
-      {(showConfig || showDebug || showOwner) && (
+      {(showConfig || showDebug) && (
         <div 
           className="absolute inset-0 bg-black/50 z-40 sm:hidden"
-          onClick={() => { setShowConfig(false); setShowDebug(false); setShowOwner(false); }}
+          onClick={() => { setShowConfig(false); setShowDebug(false); }}
         ></div>
       )}
 

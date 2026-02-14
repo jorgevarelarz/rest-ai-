@@ -20,6 +20,16 @@ const save = (key: string, data: unknown[]) => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
+const normalizeAllergens = (allergens?: string[]): string[] => {
+  const out = new Set<string>();
+  for (const a of allergens ?? []) {
+    const v = String(a).trim().toLowerCase();
+    if (!v) continue;
+    out.add(v);
+  }
+  return Array.from(out);
+};
+
 export const MenuRepository = {
   listCategories: (restaurantId: string): MenuCategory[] => {
     return load<MenuCategory>(KEY_CATEGORIES)
@@ -31,6 +41,7 @@ export const MenuRepository = {
   listItems: (restaurantId: string): MenuItem[] => {
     return load<MenuItem>(KEY_ITEMS)
       .filter((i) => i.restaurant_id === restaurantId)
+      .map((i) => ({ ...i, allergens: normalizeAllergens(i.allergens) }))
       .slice()
       .sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
   },
@@ -62,7 +73,7 @@ export const MenuRepository = {
 
   createItem: (
     restaurantId: string,
-    input: { category_id: string; name: string; description?: string; price_eur?: number }
+    input: { category_id: string; name: string; description?: string; price_eur?: number; allergens?: string[] }
   ): MenuItem => {
     const name = input.name.trim();
     if (!name) throw new Error("Item name is required.");
@@ -75,6 +86,7 @@ export const MenuRepository = {
       name,
       description: input.description?.trim() || undefined,
       price_eur: input.price_eur,
+      allergens: normalizeAllergens(input.allergens),
       available: true,
       sort,
     };
@@ -92,6 +104,26 @@ export const MenuRepository = {
     return items[idx];
   },
 
+  updateItem: (
+    restaurantId: string,
+    itemId: string,
+    patch: Partial<Pick<MenuItem, "name" | "description" | "price_eur" | "allergens">>
+  ): MenuItem | null => {
+    const items = load<MenuItem>(KEY_ITEMS);
+    const idx = items.findIndex((i) => i.restaurant_id === restaurantId && i.id === itemId);
+    if (idx === -1) return null;
+    const next: MenuItem = {
+      ...items[idx],
+      ...patch,
+      name: patch.name !== undefined ? patch.name.trim() : items[idx].name,
+      description: patch.description !== undefined ? patch.description?.trim() || undefined : items[idx].description,
+      allergens: patch.allergens !== undefined ? normalizeAllergens(patch.allergens) : normalizeAllergens(items[idx].allergens),
+    };
+    items[idx] = next;
+    save(KEY_ITEMS, items);
+    return next;
+  },
+
   deleteItem: (restaurantId: string, itemId: string): boolean => {
     const items = load<MenuItem>(KEY_ITEMS);
     const before = items.length;
@@ -101,4 +133,3 @@ export const MenuRepository = {
     return true;
   },
 };
-

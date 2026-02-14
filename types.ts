@@ -38,6 +38,7 @@ export interface MenuItem {
   name: string;
   description?: string;
   price_eur?: number;
+  allergens?: string[];
   available: boolean;
   sort: number;
 }

@@ -8,6 +8,59 @@ import { ReservationRepository } from "./reservations/repository";
 
 type SuggestedAlternative = { date: string; time: string };
 
+const normalizeText = (value: string): string =>
+  value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+const ALLERGEN_KEYWORDS = [
+  "alergia",
+  "alergico",
+  "alergen",
+  "celiaco",
+  "celiaca",
+  "intolerante",
+  "intolerancia",
+  "gluten",
+  "lactosa",
+  "huevo",
+  "huevos",
+  "frutos secos",
+  "cacahuete",
+  "cacahuetes",
+  "soja",
+  "pescado",
+  "marisco",
+  "mostaza",
+  "sesamo",
+  "apio",
+  "sulfitos",
+  "altramuz",
+  "moluscos",
+];
+
+const detectAllergenMentions = (text: string): string[] => {
+  const t = normalizeText(text);
+  return ALLERGEN_KEYWORDS.filter((k) => t.includes(k));
+};
+
+const detectMentionedItemsWithoutAllergenData = (
+  text: string,
+  menuItems: Array<{ name: string; allergens?: string[] }>
+): string[] => {
+  const t = normalizeText(text);
+  const matches: string[] = [];
+  for (const item of menuItems) {
+    const normalizedName = normalizeText(item.name || "").trim();
+    if (!normalizedName || normalizedName.length < 3) continue;
+    if (!t.includes(normalizedName)) continue;
+    if ((item.allergens ?? []).length > 0) continue;
+    matches.push(item.name);
+  }
+  return matches;
+};
+
 interface GenerateResponseParams {
   restaurant_id: string;
   history: ChatMessage[];
@@ -58,6 +111,14 @@ export const generateResponse = async ({
     hour12: false,
   });
   const utcNow = now.toISOString();
+  const latestUserText =
+    lastUserMessage ||
+    [...history].reverse().find((m) => m.role === "user")?.text ||
+    "";
+  const mentionedAllergens = latestUserText ? detectAllergenMentions(latestUserText) : [];
+  const mentionedItemsWithoutAllergenData = latestUserText
+    ? detectMentionedItemsWithoutAllergenData(latestUserText, menuItems)
+    : [];
 
   // Interpolate the prompt with restaurant config
   let systemInstruction = BASE_SYSTEM_PROMPT
@@ -89,6 +150,17 @@ client:
   const menuContext = `
 MENU (solo de este restaurante):
 ${JSON.stringify({ categories: menuCategories, items: menuItems })}
+`;
+
+  const allergyGuardContext = `
+ALERGIAS (GUARDRAIL):
+- user_mentions_allergens: ${mentionedAllergens.length > 0 ? "true" : "false"}
+- mentioned_allergen_terms: ${JSON.stringify(mentionedAllergens)}
+- mentioned_menu_items_without_allergen_data: ${JSON.stringify(mentionedItemsWithoutAllergenData)}
+
+REGLA ESTRICTA:
+- Si user_mentions_allergens es true, NO asegures que un plato es seguro/libre de alérgenos sin datos explícitos en MENU.items[].allergens.
+- Si mentioned_menu_items_without_allergen_data no está vacío, debes avisar que faltan datos de alérgenos para esos platos y recomendar confirmarlo con cocina antes de confirmar.
 `;
 
   const availabilityContext = `
@@ -147,7 +219,7 @@ Pregunta SOLO por el siguiente dato lógico según el step.
 No repitas preguntas ya respondidas.
 `;
   
-  systemInstruction += runtimeTimeContext + restaurantContext + menuContext + availabilityContext + backendContext + backendLockContext + stateContext;
+  systemInstruction += runtimeTimeContext + restaurantContext + menuContext + allergyGuardContext + availabilityContext + backendContext + backendLockContext + stateContext;
 
   // Convert internal message format to Gemini Content format
   // We only send text parts for this simple chat.
