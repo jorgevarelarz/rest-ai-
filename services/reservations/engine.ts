@@ -87,7 +87,7 @@ export const ReservationEngine = {
       }
 
       case 'create_reservation': {
-        const { date, time, party_size, name, notes, phone } = action.payload;
+        const { date, time, party_size, name, notes, phone, table_id } = action.payload;
         if (!date || !time || !party_size || !name) {
           return { success: false, availability: "unknown", message: "Missing required reservation fields." };
         }
@@ -128,6 +128,7 @@ export const ReservationEngine = {
           partySize: party_size,
           name,
           phone: finalPhone,
+          table_id,
           notes
         });
 
@@ -180,6 +181,7 @@ export const ReservationEngine = {
           date: newDate,
           time: normalizedTime,
           partySize: newSize,
+          table_id: changes.table_id,
           notes: changes.notes
         });
 

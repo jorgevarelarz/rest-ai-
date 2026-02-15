@@ -8,6 +8,7 @@ export interface Reservation {
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
   partySize: number;
+  table_id?: string;
   notes?: string;
   status: ReservationStatus;
   createdAt: number;

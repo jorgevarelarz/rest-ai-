@@ -43,6 +43,36 @@ export interface MenuItem {
   sort: number;
 }
 
+export type TableStatus = "free" | "occupied" | "reserved" | "blocked";
+export type TableKind = "table" | "stool";
+
+export interface RestaurantLayoutWall {
+  id: string;
+  restaurant_id: string;
+  // Normalized rect in [0..1].
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  kind: "wall" | "bar";
+  updated_at: number; // epoch ms
+}
+
+export interface RestaurantTable {
+  id: string;
+  restaurant_id: string;
+  name: string; // e.g. "T1", "Mesa 12"
+  capacity: number; // seats
+  zone?: string; // "terraza", "sala", etc.
+  kind?: TableKind; // default: "table"
+  status: TableStatus;
+  // Normalized coordinates in [0..1] for visual map layout.
+  layout_x?: number;
+  layout_y?: number;
+  notes?: string;
+  updated_at: number; // epoch ms
+}
+
 export interface ReservationData {
   name: string | null;
   phone: string | null;

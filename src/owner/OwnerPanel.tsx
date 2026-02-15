@@ -3,11 +3,12 @@ import Restaurants from "./Restaurants";
 import ReservationsToday from "./ReservationsToday";
 import RestaurantSettings from "./RestaurantSettings";
 import MenuManager from "./MenuManager";
+import TablesLive from "./TablesLive";
 import { ReservationRepository } from "../../services/reservations/repository";
 import { subscribeReservationSettings } from "../../services/reservations/settings";
 import { RestaurantRepository } from "../../services/restaurants/repository";
 
-type Tab = "restaurants" | "today" | "settings" | "menu";
+type Tab = "restaurants" | "today" | "tables" | "settings" | "menu";
 
 function toISODate(d: Date): string {
   const local = new Date(d.getTime() - d.getTimezoneOffset() * 60_000);
@@ -146,6 +147,14 @@ const OwnerPanel: React.FC<OwnerPanelProps> = ({
             Hoy
           </button>
           <button
+            onClick={() => setTab("tables")}
+            className={`px-3 py-2 rounded-md text-sm font-semibold border whitespace-nowrap ${
+              tab === "tables" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-800 border-slate-300 hover:bg-slate-100"
+            }`}
+          >
+            Mesas
+          </button>
+          <button
             onClick={() => setTab("settings")}
             className={`px-3 py-2 rounded-md text-sm font-semibold border whitespace-nowrap ${
               tab === "settings" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-800 border-slate-300 hover:bg-slate-100"
@@ -189,6 +198,8 @@ const OwnerPanel: React.FC<OwnerPanelProps> = ({
             </div>
             <ReservationsToday restaurantId={activeRestaurantId} date={date} refreshKey={tick} />
           </>
+        ) : tab === "tables" ? (
+          <TablesLive restaurantId={activeRestaurantId} />
         ) : tab === "settings" ? (
           <RestaurantSettings restaurantId={activeRestaurantId} refreshKey={tick} />
         ) : tab === "menu" ? (

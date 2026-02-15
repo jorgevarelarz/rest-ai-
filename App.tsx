@@ -6,6 +6,8 @@ import { ReservationEngine } from './services/reservations/engine';
 import { ReservationRepository } from './services/reservations/repository';
 import { RestaurantRepository } from './services/restaurants/repository';
 import { RestaurantConfigRepository } from './services/restaurants/configRepository';
+import { fetchTablesState } from './services/tables/tableApi';
+import { pickTableForReservation, suggestAlternativeTimesByTables, listAvailableTablesForReservation } from './services/reservations/tableAssignment';
 import ConfigPanel from './components/ConfigPanel';
 import DebugPanel from './components/DebugPanel';
 import ChatBubble from './components/ChatBubble';
@@ -301,17 +303,120 @@ const App: React.FC = () => {
 
         // If we have a backend action, run it and then generate a FINAL user-facing response
         if (action.type !== 'none') {
-          const result = ReservationEngine.execute(action, {
-            restaurant_id: restaurantId,
-            phone: reservationContext.simulatedUserPhone
-          });
+          // Table assignment: best-effort, uses the live tables inventory (if available).
+          let result:
+            | ReturnType<typeof ReservationEngine.execute>
+            | {
+                success: boolean;
+                availability?: AvailabilityStatus;
+                reason?: any;
+                alternatives?: { date: string; time: string }[];
+                normalized_time?: string;
+                message?: string;
+                data?: any;
+              };
+
+          const tryAssignTable = async (): Promise<{ ok: true } | { ok: false; alternatives: { date: string; time: string }[] }> => {
+            if (!action?.payload?.date || !action?.payload?.time || !action?.payload?.party_size) return { ok: true };
+            try {
+              const state = await fetchTablesState(restaurantId);
+              const reservations = ReservationRepository.getByDateAll(restaurantId, action.payload.date);
+              const table = pickTableForReservation(
+                restaurantId,
+                action.payload.date,
+                action.payload.time,
+                action.payload.party_size,
+                state.tables,
+                reservations
+              );
+              if (table) {
+                action.payload.table_id = table.id;
+                return { ok: true };
+              }
+              const alternatives = suggestAlternativeTimesByTables(
+                restaurantId,
+                action.payload.date,
+                action.payload.time,
+                action.payload.party_size,
+                state.tables,
+                reservations
+              );
+              return { ok: false, alternatives };
+            } catch {
+              // If tables API is not available/authenticated, allow booking without assignment.
+              return { ok: true };
+            }
+          };
+
+          const tryReassignTableOnUpdate = async (): Promise<void> => {
+            if (action.type !== "update_reservation") return;
+            const reservationId = action?.payload?.reservation_id;
+            if (!reservationId) return;
+            const changes = action?.payload?.changes || {};
+            const changingCore = Boolean(changes.date || changes.time || changes.party_size);
+            if (!changingCore) return;
+            try {
+              const state = await fetchTablesState(restaurantId);
+              const current = ReservationRepository.getById(restaurantId, reservationId);
+              if (!current) return;
+              const date = changes.date || current.date;
+              const time = changes.time || current.time;
+              const size = changes.party_size || current.partySize;
+              const reservations = ReservationRepository.getByDateAll(restaurantId, date);
+
+              // Keep existing table if still valid.
+              if (current.table_id) {
+                const stillFree = listAvailableTablesForReservation(
+                  restaurantId,
+                  date,
+                  time,
+                  size,
+                  state.tables,
+                  reservations,
+                  reservationId
+                ).some((t) => t.id === current.table_id);
+                if (stillFree) return;
+              }
+              const next = pickTableForReservation(restaurantId, date, time, size, state.tables, reservations, reservationId);
+              if (next) {
+                changes.table_id = next.id;
+              }
+            } catch {
+              // ignore
+            }
+          };
+
+          if (action.type === "create_reservation") {
+            const assigned = await tryAssignTable();
+            if (!assigned.ok) {
+              result = {
+                success: false,
+                availability: "not_available",
+                reason: "capacity",
+                alternatives: assigned.alternatives,
+                message: "No table available for requested slot."
+              };
+            } else {
+              result = ReservationEngine.execute(action, {
+                restaurant_id: restaurantId,
+                phone: reservationContext.simulatedUserPhone
+              });
+            }
+          } else {
+            await tryReassignTableOnUpdate();
+            result = ReservationEngine.execute(action, {
+              restaurant_id: restaurantId,
+              phone: reservationContext.simulatedUserPhone
+            });
+          }
 
           const nextAvailability: AvailabilityStatus =
             (result.availability as AvailabilityStatus | undefined) ??
             ((action.type === 'update_reservation' || action.type === 'cancel_reservation') ? 'unknown' : availability);
 
           setAvailability(nextAvailability);
-          setSuggestedAlternatives(action.type === 'check_availability' ? (result.alternatives ?? []) : []);
+          const nextSuggested = (result.alternatives ?? []) as { date: string; time: string }[];
+          setSuggestedAlternatives(nextSuggested);
 
           // Refresh Context Stats after a write operation (create/update/cancel)
           let nextContext = reservationContext;
@@ -330,7 +435,7 @@ const App: React.FC = () => {
             history: nextHistory,
             lastUserMessage: userMsg.text,
             availabilityStatus: nextAvailability,
-            suggestedAlternatives: action.type === 'check_availability' ? (result.alternatives ?? []) : [],
+            suggestedAlternatives: nextSuggested,
             backendResult: result,
             lockBackendAction: true,
             apiKey: apiKey,
