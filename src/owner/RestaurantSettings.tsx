@@ -3,6 +3,7 @@ import { CapacityConfig, SlotRoundingMode } from "../../services/reservations/ty
 import { getReservationSettings, updateReservationSettings } from "../../services/reservations/settings";
 import { RestaurantConfigRepository } from "../../services/restaurants/configRepository";
 import { RestaurantRepository } from "../../services/restaurants/repository";
+import { connectGoogleCalendar, disconnectGoogleCalendar, fetchGoogleCalendarStatus } from "../../services/calendar/googleCalendarApi";
 import { RestaurantConfig } from "../../types";
 
 interface RestaurantSettingsProps {
@@ -28,6 +29,10 @@ const RestaurantSettings: React.FC<RestaurantSettingsProps> = ({ restaurantId, r
   }, [restaurantId, refreshKey]);
 
   const [closedDate, setClosedDate] = useState("");
+  const [calendarConnected, setCalendarConnected] = useState(false);
+  const [calendarEmail, setCalendarEmail] = useState<string | null>(null);
+  const [calendarConfigOk, setCalendarConfigOk] = useState(false);
+  const [calendarLoading, setCalendarLoading] = useState(false);
 
   const applyPatch = (patch: Partial<CapacityConfig>) => {
     updateReservationSettings(restaurantId, patch);
@@ -60,6 +65,23 @@ const RestaurantSettings: React.FC<RestaurantSettingsProps> = ({ restaurantId, r
   };
 
   const openingHours = current.openingHours ?? [];
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      setCalendarLoading(true);
+      const status = await fetchGoogleCalendarStatus(restaurantId);
+      if (cancelled) return;
+      setCalendarConnected(Boolean(status.connected));
+      setCalendarEmail(status.email ?? null);
+      setCalendarConfigOk(Boolean(status.has_config));
+      setCalendarLoading(false);
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [restaurantId, refreshKey]);
 
   const patchShift = (index: number, field: "start" | "end", value: string) => {
     const next = openingHours.map((s) => ({ ...s }));
@@ -114,6 +136,58 @@ const RestaurantSettings: React.FC<RestaurantSettingsProps> = ({ restaurantId, r
               className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
             />
           </div>
+        </div>
+      </section>
+
+      <section className="bg-white border border-slate-200 rounded-lg p-4 space-y-4">
+        <div>
+          <h3 className="text-sm font-bold text-slate-900">Google Calendar</h3>
+          <p className="text-xs text-slate-500">Sincroniza altas/cambios/cancelaciones con un calendario real.</p>
+        </div>
+        <div className="rounded-md border border-slate-200 px-3 py-2 text-sm">
+          {!calendarConfigOk ? (
+            <span className="text-amber-700">
+              Falta configuración en servidor (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`).
+            </span>
+          ) : calendarLoading ? (
+            <span className="text-slate-500">Comprobando conexión...</span>
+          ) : calendarConnected ? (
+            <span className="text-emerald-700">
+              Conectado {calendarEmail ? `como ${calendarEmail}` : "correctamente"}.
+            </span>
+          ) : (
+            <span className="text-slate-600">No conectado.</span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => connectGoogleCalendar(restaurantId)}
+            disabled={!calendarConfigOk}
+            className={`px-3 py-2 rounded-md text-sm font-semibold border ${
+              calendarConfigOk
+                ? "border-slate-300 hover:bg-slate-100"
+                : "border-slate-200 text-slate-400 cursor-not-allowed"
+            }`}
+          >
+            {calendarConnected ? "Reconectar Google" : "Conectar Google"}
+          </button>
+          <button
+            onClick={async () => {
+              const ok = await disconnectGoogleCalendar(restaurantId);
+              if (ok) {
+                setCalendarConnected(false);
+                setCalendarEmail(null);
+              }
+            }}
+            disabled={!calendarConnected}
+            className={`px-3 py-2 rounded-md text-sm font-semibold border ${
+              calendarConnected
+                ? "border-rose-200 text-rose-700 hover:bg-rose-50"
+                : "border-slate-200 text-slate-400 cursor-not-allowed"
+            }`}
+          >
+            Desconectar
+          </button>
         </div>
       </section>
 

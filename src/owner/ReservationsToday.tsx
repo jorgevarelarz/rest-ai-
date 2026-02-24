@@ -6,6 +6,7 @@ import { parseTimeToMinutes } from "../../services/reservations/timeSlots";
 import { connectTablesStream, fetchTablesState } from "../../services/tables/tableApi";
 import { getReservationSettings } from "../../services/reservations/settings";
 import { listAvailableTablesForReservation, pickTableForReservation } from "../../services/reservations/tableAssignment";
+import { RestaurantRepository } from "../../services/restaurants/repository";
 
 interface ReservationsTodayProps {
   restaurantId: string;
@@ -24,6 +25,9 @@ function sortByTime(a: Reservation, b: Reservation): number {
 
 const ReservationsToday: React.FC<ReservationsTodayProps> = ({ restaurantId, date, refreshKey }) => {
   const [tables, setTables] = useState<RestaurantTable[]>([]);
+  const restaurant = RestaurantRepository.getById(restaurantId);
+  const isHospitality = restaurant?.business_type !== "professional_services";
+  const bookingLabel = isHospitality ? "Reservas" : "Citas";
   const reservations = useMemo(() => {
     void refreshKey;
     return ReservationRepository.getByDateAll(restaurantId, date).slice().sort(sortByTime);
@@ -60,7 +64,7 @@ const ReservationsToday: React.FC<ReservationsTodayProps> = ({ restaurantId, dat
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-gray-900">Reservas</h3>
+        <h3 className="text-sm font-bold text-gray-900">{bookingLabel}</h3>
         <div className="text-xs text-gray-500">
           Activas: <span className="font-semibold text-gray-900">{activeCount}</span>{" "}
           Canceladas: <span className="font-semibold text-gray-900">{cancelledCount}</span>
@@ -69,7 +73,7 @@ const ReservationsToday: React.FC<ReservationsTodayProps> = ({ restaurantId, dat
 
       {reservations.length === 0 ? (
         <div className="text-sm text-gray-500 italic border border-dashed border-gray-200 rounded-md p-4">
-          No hay reservas para esta fecha.
+          {isHospitality ? "No hay reservas para esta fecha." : "No hay citas para esta fecha."}
         </div>
       ) : (
         <div className="space-y-2">
@@ -92,12 +96,14 @@ const ReservationsToday: React.FC<ReservationsTodayProps> = ({ restaurantId, dat
                   <div className="mt-1 text-xs text-gray-600 truncate">
                     {r.phone} {r.notes ? `· ${r.notes}` : ""}
                   </div>
-                  <div className="mt-2 text-xs text-gray-700">
-                    Mesa:{" "}
-                    <span className="font-semibold">
-                      {r.table_id ? (tableNameById.get(r.table_id) ?? r.table_id) : "Sin asignar"}
-                    </span>
-                  </div>
+                  {isHospitality ? (
+                    <div className="mt-2 text-xs text-gray-700">
+                      Mesa:{" "}
+                      <span className="font-semibold">
+                        {r.table_id ? (tableNameById.get(r.table_id) ?? r.table_id) : "Sin asignar"}
+                      </span>
+                    </div>
+                  ) : null}
                   <div className="mt-2 text-xs">
                     Estado:{" "}
                     <span className={r.status === "active" ? "font-semibold text-green-700" : "font-semibold text-gray-500"}>
@@ -107,7 +113,7 @@ const ReservationsToday: React.FC<ReservationsTodayProps> = ({ restaurantId, dat
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  {r.status === "active" && tables.length > 0 ? (
+                  {isHospitality && r.status === "active" && tables.length > 0 ? (
                     <div className="flex flex-col gap-2">
                       <select
                         value={r.table_id || ""}

@@ -9,6 +9,7 @@ export interface Reservation {
   time: string; // HH:MM
   partySize: number;
   table_id?: string;
+  calendar_event_id?: string;
   notes?: string;
   status: ReservationStatus;
   createdAt: number;

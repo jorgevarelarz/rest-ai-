@@ -20,5 +20,34 @@ View your app in AI Studio: https://ai.studio/apps/drive/1EqJNlqGtM2SQpNCuQo52dy
    - `OWNER_USER=admin`
    - `OWNER_PASSWORD=admin`
    - `OWNER_AUTH_SECRET=change-this-secret`
+   Optional for Google Calendar sync:
+   - `GOOGLE_CLIENT_ID=...`
+   - `GOOGLE_CLIENT_SECRET=...`
+   - `GOOGLE_REDIRECT_URI=http://localhost:3000/api/calendar/callback`
+   - `GOOGLE_CALENDAR_ID=primary` (optional)
 3. Run the app:
    `npm run dev`
+
+## Commercial Website + Demo Routes
+
+- `/#/home` (or no hash): commercial website for prospects
+- `/#/app`: live demo chat
+- `/#/owner`: owner/admin panel
+
+Branding values are centralized in:
+- `src/marketing/siteConfig.ts`
+
+## Deploy on Vercel
+
+1. Push this project to GitHub.
+2. In Vercel, import the repo.
+3. Build command: `npm run build`
+4. Output directory: `dist`
+5. Add environment variables:
+   - `VITE_GEMINI_API_KEY`
+   - `OWNER_USER`, `OWNER_PASSWORD`, `OWNER_AUTH_SECRET`
+   - Optional calendar sync:
+     - `GOOGLE_CLIENT_ID`
+     - `GOOGLE_CLIENT_SECRET`
+     - `GOOGLE_REDIRECT_URI=https://<tu-dominio>/api/calendar/callback`
+     - `GOOGLE_CALENDAR_ID=primary`

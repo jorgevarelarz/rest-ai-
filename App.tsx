@@ -7,13 +7,23 @@ import { ReservationRepository } from './services/reservations/repository';
 import { RestaurantRepository } from './services/restaurants/repository';
 import { RestaurantConfigRepository } from './services/restaurants/configRepository';
 import { fetchTablesState } from './services/tables/tableApi';
+import { syncCalendarCancel, syncCalendarCreate, syncCalendarUpdate } from './services/calendar/googleCalendarApi';
 import { pickTableForReservation, suggestAlternativeTimesByTables, listAvailableTablesForReservation } from './services/reservations/tableAssignment';
 import ConfigPanel from './components/ConfigPanel';
 import DebugPanel from './components/DebugPanel';
 import ChatBubble from './components/ChatBubble';
+import MarketingSite from './src/marketing/MarketingSite';
 import OwnerPanel from './src/owner/OwnerPanel';
 import OwnerLogin from './src/owner/OwnerLogin';
+import { SITE_CONFIG } from './src/marketing/siteConfig';
 import { ownerLogin, ownerLogout, ownerSession } from './services/auth/ownerAuth';
+
+const getHashPath = (): string => {
+  const h = window.location.hash || "";
+  if (!h.startsWith("#/")) return "";
+  const qIdx = h.indexOf("?");
+  return qIdx >= 0 ? h.slice(0, qIdx) : h;
+};
 
 const getRestaurantIdFromHash = (): string | null => {
   const h = window.location.hash || "";
@@ -21,11 +31,6 @@ const getRestaurantIdFromHash = (): string | null => {
   const m = h.match(/(?:^|[?#&])rid=([^&]+)/);
   if (m && m[1]) return decodeURIComponent(m[1]);
   return null;
-};
-
-const isOwnerHashRoute = (): boolean => {
-  const h = window.location.hash || "";
-  return h.startsWith("#/owner");
 };
 
 function getApiKey(): string {
@@ -79,7 +84,7 @@ const App: React.FC = () => {
   // UI State
   const [showConfig, setShowConfig] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
-  const [isOwnerRoute, setIsOwnerRoute] = useState<boolean>(() => isOwnerHashRoute());
+  const [routePath, setRoutePath] = useState<string>(() => getHashPath());
   const [isOwnerAuthenticated, setIsOwnerAuthenticated] = useState<boolean>(false);
   const [isOwnerAuthLoading, setIsOwnerAuthLoading] = useState<boolean>(true);
   
@@ -87,6 +92,12 @@ const App: React.FC = () => {
   const [lastParsedData, setLastParsedData] = useState<AssistantParsedResponse | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isOwnerRoute = routePath === "#/owner";
+  const isAppRoute = routePath === "#/app" || routePath === "#/";
+  const isMarketingRoute = !isOwnerRoute && !isAppRoute;
+  const activeRestaurant = restaurantId ? RestaurantRepository.getById(restaurantId) : null;
+  const isHospitalityBusiness = activeRestaurant?.business_type !== "professional_services";
+  const activeBusinessType = activeRestaurant?.business_type ?? "hospitality";
 
   // Scroll to bottom on new message
   useEffect(() => {
@@ -107,7 +118,7 @@ const App: React.FC = () => {
   // Keep route and restaurant id in sync with hash.
   useEffect(() => {
     const onHashChange = () => {
-      setIsOwnerRoute(isOwnerHashRoute());
+      setRoutePath(getHashPath());
       const fromHash = getRestaurantIdFromHash();
       if (fromHash && RestaurantRepository.getById(fromHash)) {
         setRestaurantId(fromHash);
@@ -137,9 +148,11 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!restaurantId) return;
     localStorage.setItem("resto_bot_active_restaurant", restaurantId);
-    const rid = encodeURIComponent(restaurantId);
-    const next = isOwnerHashRoute() ? `#/owner?rid=${rid}` : `#/?rid=${rid}`;
-    if (window.location.hash !== next) window.location.hash = next;
+    if (isOwnerRoute || isAppRoute) {
+      const rid = encodeURIComponent(restaurantId);
+      const next = isOwnerRoute ? `#/owner?rid=${rid}` : `#/app?rid=${rid}`;
+      if (window.location.hash !== next) window.location.hash = next;
+    }
     const cfg = RestaurantConfigRepository.get(restaurantId);
     setConfig(cfg);
 
@@ -166,11 +179,13 @@ const App: React.FC = () => {
     const initialMsg: ChatMessage = {
       id: `init-${restaurantId}`,
       role: 'model',
-      text: `Hola 👋 Soy el asistente de reservas. Puedo reservar, cambiar o cancelar mesas.`,
+      text: isHospitalityBusiness
+        ? `Hola 👋 Soy el asistente de reservas. Puedo reservar, cambiar o cancelar mesas.`
+        : `Hola 👋 Soy el asistente de citas. Puedo agendar, cambiar o cancelar citas.`,
       timestamp: Date.now(),
     };
     setMessages([initialMsg]);
-  }, [restaurantId]); 
+  }, [restaurantId, isHospitalityBusiness, isOwnerRoute, isAppRoute]); 
 
   const openOwnerPage = () => {
     if (!restaurantId) return;
@@ -179,7 +194,11 @@ const App: React.FC = () => {
 
   const openChatPage = () => {
     if (!restaurantId) return;
-    window.location.hash = `#/?rid=${encodeURIComponent(restaurantId)}`;
+    window.location.hash = `#/app?rid=${encodeURIComponent(restaurantId)}`;
+  };
+
+  const openMarketingPage = () => {
+    window.location.hash = "#/home";
   };
 
   useEffect(() => {
@@ -231,11 +250,7 @@ const App: React.FC = () => {
     setIsLoading(true);
 
     try {
-      // API Key check
       const apiKey = getApiKey();
-      if (!apiKey) {
-        throw new Error("API Key no encontrada. Usa VITE_GEMINI_API_KEY en .env.local y reinicia npm run dev.");
-      }
 
       // 1. GENERATE "PLAN" (parse + backend_action)
       const planResponse = await generateResponse({
@@ -317,6 +332,7 @@ const App: React.FC = () => {
               };
 
           const tryAssignTable = async (): Promise<{ ok: true } | { ok: false; alternatives: { date: string; time: string }[] }> => {
+            if (!isHospitalityBusiness) return { ok: true };
             if (!action?.payload?.date || !action?.payload?.time || !action?.payload?.party_size) return { ok: true };
             try {
               const state = await fetchTablesState(restaurantId);
@@ -349,6 +365,7 @@ const App: React.FC = () => {
           };
 
           const tryReassignTableOnUpdate = async (): Promise<void> => {
+            if (!isHospitalityBusiness) return;
             if (action.type !== "update_reservation") return;
             const reservationId = action?.payload?.reservation_id;
             if (!reservationId) return;
@@ -386,29 +403,60 @@ const App: React.FC = () => {
             }
           };
 
-          if (action.type === "create_reservation") {
-            const assigned = await tryAssignTable();
-            if (!assigned.ok) {
-              result = {
-                success: false,
-                availability: "not_available",
-                reason: "capacity",
+	          if (action.type === "create_reservation") {
+	            const assigned = await tryAssignTable();
+	            if (assigned.ok === false) {
+	              result = {
+	                success: false,
+	                availability: "not_available",
+	                reason: "capacity",
                 alternatives: assigned.alternatives,
                 message: "No table available for requested slot."
               };
             } else {
-              result = ReservationEngine.execute(action, {
-                restaurant_id: restaurantId,
-                phone: reservationContext.simulatedUserPhone
-              });
-            }
-          } else {
+	              result = ReservationEngine.execute(action, {
+	                restaurant_id: restaurantId,
+	                phone: reservationContext.simulatedUserPhone
+	              });
+	            }
+	          } else {
             await tryReassignTableOnUpdate();
-            result = ReservationEngine.execute(action, {
-              restaurant_id: restaurantId,
-              phone: reservationContext.simulatedUserPhone
-            });
-          }
+	            result = ReservationEngine.execute(action, {
+	              restaurant_id: restaurantId,
+	              phone: reservationContext.simulatedUserPhone
+	            });
+	          }
+
+            // Best-effort Google Calendar sync (if connected).
+            if (result.success && activeRestaurant) {
+              if (action.type === "create_reservation" && result.data?.id) {
+                const created = result.data as any;
+                const synced = await syncCalendarCreate(
+                  restaurantId,
+                  created,
+                  activeRestaurant.name,
+                  activeBusinessType
+                );
+                if (synced.event_id) {
+                  ReservationRepository.update(restaurantId, created.id, { calendar_event_id: synced.event_id });
+                  result.data = { ...created, calendar_event_id: synced.event_id };
+                }
+              } else if (action.type === "update_reservation" && result.data?.id) {
+                const updated = result.data as any;
+                const synced = await syncCalendarUpdate(
+                  restaurantId,
+                  updated,
+                  activeRestaurant.name,
+                  activeBusinessType
+                );
+                if (synced.event_id && updated.calendar_event_id !== synced.event_id) {
+                  ReservationRepository.update(restaurantId, updated.id, { calendar_event_id: synced.event_id });
+                  result.data = { ...updated, calendar_event_id: synced.event_id };
+                }
+              } else if (action.type === "cancel_reservation" && result.data?.id) {
+                await syncCalendarCancel(restaurantId, result.data);
+              }
+            }
 
           const nextAvailability: AvailabilityStatus =
             (result.availability as AvailabilityStatus | undefined) ??
@@ -499,6 +547,10 @@ const App: React.FC = () => {
     );
   }
 
+  if (isMarketingRoute) {
+    return <MarketingSite onOpenDemo={openChatPage} />;
+  }
+
   return (
     <div className="relative flex h-full w-full bg-[#E5DDD5] overflow-hidden">
       
@@ -508,29 +560,39 @@ const App: React.FC = () => {
       </div>
 
       {/* --- Main Content Area --- */}
-      <div className="relative z-10 flex flex-col w-full h-full max-w-4xl mx-auto shadow-2xl bg-[#efe7dd]">
+      <div className="relative z-10 flex flex-col w-full h-full max-w-4xl mx-auto shadow-2xl bg-[#eef2f7]">
         
         {/* Header */}
-        <header className="flex-none bg-[#008069] text-white px-4 py-3 flex items-center justify-between shadow-md z-20">
+        <header
+          className="flex-none text-white px-4 py-3 flex items-center justify-between shadow-md z-20"
+          style={{ backgroundColor: SITE_CONFIG.colors.navy }}
+        >
           <div className="flex items-center space-x-3">
-             <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center overflow-hidden">
-                <span className="text-2xl">🤖</span>
+             <div className="w-10 h-10 rounded-full bg-white/15 border border-white/20 flex items-center justify-center overflow-hidden">
+                <img src={SITE_CONFIG.mark} alt={`${SITE_CONFIG.brandName} mark`} className="h-8 w-8" />
              </div>
              <div>
                <h1 className="font-semibold text-lg leading-tight truncate max-w-[200px] sm:max-w-md">
                  {config.name}
                </h1>
-               <p className="text-xs text-green-100/80 truncate">
-                 {isLoading ? 'Escribiendo...' : 'En línea'}
+               <p className="text-xs text-blue-100/80 truncate">
+                 {isLoading ? 'Escribiendo...' : `${SITE_CONFIG.brandName} en línea`}
                </p>
              </div>
           </div>
           
-          <div className="flex items-center space-x-2">
-            <button 
-              onClick={openOwnerPage}
+	          <div className="flex items-center space-x-2">
+            <button
+              onClick={openMarketingPage}
+              className="px-3 py-1.5 text-xs font-semibold rounded-full bg-white/15 hover:bg-white/25 transition"
+              title="Volver a la web comercial"
+            >
+              Web
+            </button>
+	            <button 
+	              onClick={openOwnerPage}
               className="p-2 hover:bg-white/10 rounded-full transition"
-              title="Ir a panel del restaurante"
+              title={isHospitalityBusiness ? "Ir a panel del restaurante" : "Ir a panel del negocio"}
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0z"></path>
@@ -596,8 +658,9 @@ const App: React.FC = () => {
               className={`p-3 rounded-full mb-1 transition shadow-sm ${
                 !inputText.trim() || isLoading
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                : 'bg-[#008069] text-white hover:bg-[#006d59]'
+                : 'text-white hover:opacity-90'
               }`}
+              style={!inputText.trim() || isLoading ? undefined : { backgroundColor: SITE_CONFIG.colors.navy }}
             >
               <svg className="w-5 h-5 transform rotate-90 translate-x-[1px]" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"></path></svg>
             </button>

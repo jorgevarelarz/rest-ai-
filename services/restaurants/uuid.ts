@@ -1,13 +1,17 @@
 export function generateUuid(): string {
+  const webCrypto = (globalThis as any).crypto as
+    | { randomUUID?: () => string; getRandomValues?: (arr: Uint8Array) => Uint8Array }
+    | undefined;
+
   // Browser-safe UUID without dependencies.
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
+  if (webCrypto?.randomUUID) {
+    return webCrypto.randomUUID();
   }
 
   // Fallback (RFC4122-ish v4), acceptable for MVP when randomUUID isn't available.
   const bytes = new Uint8Array(16);
-  if (typeof crypto !== "undefined" && "getRandomValues" in crypto) {
-    crypto.getRandomValues(bytes);
+  if (webCrypto?.getRandomValues) {
+    webCrypto.getRandomValues(bytes);
   } else {
     for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
   }
@@ -20,4 +24,3 @@ export function generateUuid(): string {
 export function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
-

@@ -1,5 +1,5 @@
 import { GoogleGenAI, Content, Part } from "@google/genai";
-import { BASE_SYSTEM_PROMPT } from '../constants';
+import { getSystemPromptForBusinessType } from '../constants';
 import { AvailabilityStatus, ChatMessage, AssistantParsedResponse, ReservationState, ReservationContext } from '../types';
 import { RestaurantRepository } from "./restaurants/repository";
 import { RestaurantConfigRepository } from "./restaurants/configRepository";
@@ -69,7 +69,7 @@ interface GenerateResponseParams {
   suggestedAlternatives?: SuggestedAlternative[];
   backendResult?: any;
   lockBackendAction?: boolean;
-  apiKey: string;
+  apiKey?: string;
   reservationState: ReservationState;
   reservationContext: ReservationContext;
 }
@@ -86,12 +86,6 @@ export const generateResponse = async ({
   reservationState,
   reservationContext
 }: GenerateResponseParams): Promise<{ text: string; raw: string; parsedData: AssistantParsedResponse | null }> => {
-  if (!apiKey) {
-    throw new Error("API Key is missing.");
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
-
   const restaurant = RestaurantRepository.getById(restaurant_id);
   if (!restaurant) {
     throw new Error("Restaurant not configured.");
@@ -121,7 +115,7 @@ export const generateResponse = async ({
     : [];
 
   // Interpolate the prompt with restaurant config
-  let systemInstruction = BASE_SYSTEM_PROMPT
+  let systemInstruction = getSystemPromptForBusinessType(restaurant.business_type)
     .replace(/{{RESTAURANTE}}/g, restaurant.name)
     .replace(/{{DIRECCION}}/g, config.address)
     .replace(/{{HORARIO}}/g, config.hours)
@@ -223,7 +217,8 @@ No repitas preguntas ya respondidas.
 
   // Convert internal message format to Gemini Content format
   // We only send text parts for this simple chat.
-  const contents: Content[] = history.map((msg) => ({
+  const recentHistory = history.slice(-16);
+  const contents: Content[] = recentHistory.map((msg) => ({
     role: msg.role,
     parts: [{ text: msg.raw || msg.text }] as Part[],
   }));
@@ -244,8 +239,8 @@ No repitas preguntas ya respondidas.
   const preferredModel = ((import.meta as any)?.env?.VITE_GEMINI_MODEL as string | undefined)?.trim();
   const candidateModels = [
     preferredModel,
-    "gemini-2.5-flash",
     "gemini-2.0-flash",
+    "gemini-2.5-flash",
     "gemini-1.5-flash",
   ].filter((m): m is string => Boolean(m));
   const uniqueCandidateModels = Array.from(new Set(candidateModels));
@@ -262,17 +257,38 @@ No repitas preguntas ya respondidas.
     return msg.includes('"status":"RESOURCE_EXHAUSTED"') || msg.includes("quota") || msg.includes("429");
   };
 
-  try {
+  const callViaServer = async (models: string[]): Promise<{ text?: string }> => {
+    const resp = await fetch("/api/ai/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        modelCandidates: models,
+        systemInstruction,
+        temperature: 0.3,
+        contents,
+      }),
+    });
+    if (!resp.ok) {
+      const detail = await resp.text();
+      throw new Error(detail || `ai_proxy_http_${resp.status}`);
+    }
+    return (await resp.json()) as { text?: string };
+  };
+
+  const callDirectGemini = async (models: string[]): Promise<{ text?: string }> => {
+    if (!apiKey) {
+      throw new Error("API key missing for direct Gemini fallback.");
+    }
+    const ai = new GoogleGenAI({ apiKey });
     let response: { text?: string } | null = null;
     let lastError: unknown = null;
-
-    for (const model of uniqueCandidateModels) {
+    for (const model of models) {
       try {
         response = await ai.models.generateContent({
           model,
           config: {
             systemInstruction: systemInstruction,
-            temperature: 0.3, // Lower creativity for operational reliability
+            temperature: 0.3,
           },
           contents: contents,
         });
@@ -284,9 +300,20 @@ No repitas preguntas ya respondidas.
         }
       }
     }
+    if (!response) throw lastError ?? new Error("No model available for generateContent.");
+    return response;
+  };
 
-    if (!response) {
-      throw lastError ?? new Error("No model available for generateContent.");
+  try {
+    let response: { text?: string } | null = null;
+    try {
+      response = await callViaServer(uniqueCandidateModels);
+    } catch (serverError) {
+      if (apiKey) {
+        response = await callDirectGemini(uniqueCandidateModels);
+      } else {
+        throw serverError;
+      }
     }
 
     const rawText = response.text || "";

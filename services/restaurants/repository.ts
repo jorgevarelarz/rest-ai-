@@ -32,6 +32,7 @@ function normalizeRestaurants(db: Restaurant[]): Restaurant[] {
   for (const r of db) {
     const id = isUuid(r.id) ? r.id : generateUuid();
     const name = (r.name || "").trim() || "Restaurant";
+    const business_type = r.business_type === "professional_services" ? "professional_services" : "hospitality";
     const wa = (r.whatsapp_number_e164 || "").trim();
     const status = r.status === "disabled" ? "disabled" : "active";
     const created_at = (r.created_at || "").trim() || nowIso;
@@ -45,6 +46,7 @@ function normalizeRestaurants(db: Restaurant[]): Restaurant[] {
     out.push({
       id,
       slug,
+      business_type,
       name,
       whatsapp_number_e164: wa,
       status,
@@ -77,6 +79,7 @@ export const RestaurantRepository = {
     const r: Restaurant = {
       id: generateUuid(),
       slug: "resto-default",
+      business_type: "hospitality",
       name: "La Trattoria del Gusto",
       whatsapp_number_e164: "+34912345678",
       status: "active",
@@ -114,9 +117,10 @@ export const RestaurantRepository = {
     return RestaurantRepository.listRestaurants().find((r) => r.whatsapp_number_e164 === normalized);
   },
 
-  createRestaurant: (input: { name: string; whatsapp_number_e164: string }): Restaurant => {
+  createRestaurant: (input: { name: string; whatsapp_number_e164: string; business_type?: Restaurant["business_type"] }): Restaurant => {
     const name = input.name.trim();
     const wa = input.whatsapp_number_e164.trim();
+    const business_type = input.business_type === "professional_services" ? "professional_services" : "hospitality";
     if (!name) throw new Error("Restaurant name is required.");
     if (!wa) throw new Error("whatsapp_number_e164 is required.");
 
@@ -131,6 +135,7 @@ export const RestaurantRepository = {
     const r: Restaurant = {
       id: generateUuid(),
       slug,
+      business_type,
       name,
       whatsapp_number_e164: wa,
       status: "active",
@@ -144,7 +149,7 @@ export const RestaurantRepository = {
 
   updateRestaurant: (
     id: string,
-    patch: Partial<Pick<Restaurant, "name" | "slug" | "whatsapp_number_e164" | "status">>
+    patch: Partial<Pick<Restaurant, "name" | "slug" | "whatsapp_number_e164" | "status" | "business_type">>
   ): Restaurant | null => {
     const db = RestaurantRepository.listRestaurants();
     const idx = db.findIndex((r) => r.id === id);
@@ -173,10 +178,15 @@ export const RestaurantRepository = {
       patch.name = n;
     }
 
+    if (patch.business_type !== undefined) {
+      if (patch.business_type !== "hospitality" && patch.business_type !== "professional_services") {
+        throw new Error("business_type must be hospitality or professional_services.");
+      }
+    }
+
     const next = { ...db[idx], ...patch };
     db[idx] = next;
     saveDB(db);
     return next;
   },
 };
-

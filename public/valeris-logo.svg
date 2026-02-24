@@ -1,0 +1,24 @@
+<svg width="920" height="260" viewBox="0 0 920 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="valerisGrad" x1="40" y1="36" x2="220" y2="224" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F2740"/>
+      <stop offset="1" stop-color="#1C4A72"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="24" y="24" width="208" height="208" rx="48" fill="url(#valerisGrad)"/>
+  <path d="M78 82L128 182L178 82" stroke="#D4A33F" stroke-width="19" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M128 182L128 114" stroke="#E9D2A0" stroke-width="13" stroke-linecap="round"/>
+  <circle cx="128" cy="196" r="8" fill="#E9D2A0"/>
+
+  <g fill="#0F2740">
+    <path d="M289 168L248 68H276L309 145L342 68H369L327 168H289Z"/>
+    <path d="M390 168V68H470V91H416V108H464V130H416V145H472V168H390Z"/>
+    <path d="M492 168V68H518V145H566V168H492Z"/>
+    <path d="M583 168V68H680V91H609V108H673V130H609V145H682V168H583Z"/>
+    <path d="M701 168V68H727V168H701Z"/>
+    <path d="M748 168V68H801C821 68 836 72 846 80C856 88 861 99 861 114C861 130 856 142 846 150C836 158 821 162 801 162H774V168H748ZM774 140H799C809 140 817 138 822 134C827 130 829 123 829 114C829 105 827 99 822 95C817 91 809 89 799 89H774V140Z"/>
+  </g>
+
+  <path d="M748 168L798 123L829 140L861 168H830L805 146L778 168H748Z" fill="#0F2740"/>
+</svg>

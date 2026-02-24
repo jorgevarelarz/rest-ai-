@@ -12,6 +12,7 @@ interface RestaurantsProps {
 const Restaurants: React.FC<RestaurantsProps> = ({ activeRestaurantId, onSelect, refreshKey }) => {
   const [name, setName] = useState("");
   const [wa, setWa] = useState("");
+  const [businessType, setBusinessType] = useState<Restaurant["business_type"]>("hospitality");
   const [error, setError] = useState<string | null>(null);
   const [localTick, setLocalTick] = useState(0);
 
@@ -24,12 +25,13 @@ const Restaurants: React.FC<RestaurantsProps> = ({ activeRestaurantId, onSelect,
   const create = () => {
     try {
       setError(null);
-      const r = RestaurantRepository.createRestaurant({ name, whatsapp_number_e164: wa });
+      const r = RestaurantRepository.createRestaurant({ name, whatsapp_number_e164: wa, business_type: businessType });
       // Initialize a default config for the new restaurant
       RestaurantConfigRepository.get(r.id);
       RestaurantConfigRepository.patch(r.id, { name: r.name });
       setName("");
       setWa("");
+      setBusinessType("hospitality");
       onSelect(r.id);
       setLocalTick((t) => t + 1);
     } catch (e) {
@@ -57,6 +59,16 @@ const Restaurants: React.FC<RestaurantsProps> = ({ activeRestaurantId, onSelect,
     }
   };
 
+  const updateBusinessType = (id: string, value: Restaurant["business_type"]) => {
+    try {
+      setError(null);
+      RestaurantRepository.updateRestaurant(id, { business_type: value });
+      setLocalTick((t) => t + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update business type.");
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -79,6 +91,14 @@ const Restaurants: React.FC<RestaurantsProps> = ({ activeRestaurantId, onSelect,
             placeholder="WhatsApp to (E164) ej: +34911222333"
             className="border border-gray-200 rounded-md px-3 py-2 text-sm"
           />
+          <select
+            value={businessType}
+            onChange={(e) => setBusinessType(e.target.value as Restaurant["business_type"])}
+            className="border border-gray-200 rounded-md px-3 py-2 text-sm bg-white"
+          >
+            <option value="hospitality">Hostelería (reservas/mesas)</option>
+            <option value="professional_services">Servicios (citas)</option>
+          </select>
           <button
             onClick={create}
             className="px-3 py-2 rounded-md text-sm font-semibold border border-gray-200 hover:bg-gray-50"
@@ -106,6 +126,9 @@ const Restaurants: React.FC<RestaurantsProps> = ({ activeRestaurantId, onSelect,
                   </div>
                   <div className="text-xs text-gray-600 mt-1 truncate">{r.whatsapp_number_e164}</div>
                   <div className="text-[11px] text-gray-400 mt-1">slug: {r.slug}</div>
+                  <div className="text-[11px] text-gray-400 mt-1">
+                    tipo: {r.business_type === "professional_services" ? "servicios" : "hostelería"}
+                  </div>
                   <div className="text-[11px] text-gray-400 mt-1">id: {r.id}</div>
                   <div className="text-[11px] text-gray-400 mt-1">created: {r.created_at}</div>
                 </div>
@@ -149,6 +172,17 @@ const Restaurants: React.FC<RestaurantsProps> = ({ activeRestaurantId, onSelect,
                 >
                   Guardar
                 </button>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <label className="text-xs font-semibold text-gray-600">Tipo</label>
+                <select
+                  value={r.business_type}
+                  onChange={(e) => updateBusinessType(r.id, e.target.value as Restaurant["business_type"])}
+                  className="border border-gray-200 rounded-md px-3 py-2 text-sm bg-white"
+                >
+                  <option value="hospitality">Hostelería</option>
+                  <option value="professional_services">Servicios</option>
+                </select>
               </div>
             </div>
           );

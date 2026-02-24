@@ -56,6 +56,8 @@ const OwnerPanel: React.FC<OwnerPanelProps> = ({
   if (!isOpen) return null;
 
   const restaurant = RestaurantRepository.getById(activeRestaurantId);
+  const isHospitality = restaurant?.business_type !== "professional_services";
+  const businessLabel = isHospitality ? "Hostelería" : "Servicios";
   const allRestaurants = RestaurantRepository.listRestaurants();
   const activeRestaurants = allRestaurants.filter((r) => r.status === "active").length;
   const todayReservations = ReservationRepository.getByDateAll(activeRestaurantId, today);
@@ -75,7 +77,7 @@ const OwnerPanel: React.FC<OwnerPanelProps> = ({
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-bold text-slate-900 truncate">Panel restaurante</h2>
             <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-              Operativo
+              {businessLabel}
             </span>
           </div>
           <p className="text-xs text-slate-500 truncate">
@@ -146,14 +148,16 @@ const OwnerPanel: React.FC<OwnerPanelProps> = ({
           >
             Hoy
           </button>
-          <button
-            onClick={() => setTab("tables")}
-            className={`px-3 py-2 rounded-md text-sm font-semibold border whitespace-nowrap ${
-              tab === "tables" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-800 border-slate-300 hover:bg-slate-100"
-            }`}
-          >
-            Mesas
-          </button>
+          {isHospitality ? (
+            <button
+              onClick={() => setTab("tables")}
+              className={`px-3 py-2 rounded-md text-sm font-semibold border whitespace-nowrap ${
+                tab === "tables" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-800 border-slate-300 hover:bg-slate-100"
+              }`}
+            >
+              Mesas
+            </button>
+          ) : null}
           <button
             onClick={() => setTab("settings")}
             className={`px-3 py-2 rounded-md text-sm font-semibold border whitespace-nowrap ${
@@ -199,7 +203,7 @@ const OwnerPanel: React.FC<OwnerPanelProps> = ({
             <ReservationsToday restaurantId={activeRestaurantId} date={date} refreshKey={tick} />
           </>
         ) : tab === "tables" ? (
-          <TablesLive restaurantId={activeRestaurantId} />
+          isHospitality ? <TablesLive restaurantId={activeRestaurantId} /> : <ReservationsToday restaurantId={activeRestaurantId} date={date} refreshKey={tick} />
         ) : tab === "settings" ? (
           <RestaurantSettings restaurantId={activeRestaurantId} refreshKey={tick} />
         ) : tab === "menu" ? (

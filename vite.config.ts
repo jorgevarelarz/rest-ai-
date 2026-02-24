@@ -6,14 +6,40 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
-  const geminiKey = env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY || '';
-  const ownerUser = (env.OWNER_USER || env.VITE_OWNER_USER || 'admin').trim();
-  const ownerPassword = (env.OWNER_PASSWORD || env.VITE_OWNER_PASSWORD || 'admin').trim();
-  const ownerSecret = (env.OWNER_AUTH_SECRET || 'dev-only-owner-secret').trim();
+  const geminiKey =
+    env.VITE_GEMINI_API_KEY ||
+    env.GEMINI_API_KEY ||
+    process.env.VITE_GEMINI_API_KEY ||
+    process.env.GEMINI_API_KEY ||
+    '';
+  const ownerUser = (
+    env.OWNER_USER ||
+    env.VITE_OWNER_USER ||
+    process.env.OWNER_USER ||
+    process.env.VITE_OWNER_USER ||
+    'admin'
+  ).trim();
+  const ownerPassword = (
+    env.OWNER_PASSWORD ||
+    env.VITE_OWNER_PASSWORD ||
+    process.env.OWNER_PASSWORD ||
+    process.env.VITE_OWNER_PASSWORD ||
+    'admin'
+  ).trim();
+  const ownerSecret = (
+    env.OWNER_AUTH_SECRET ||
+    process.env.OWNER_AUTH_SECRET ||
+    'dev-only-owner-secret'
+  ).trim();
 
   const cookieName = 'owner_session';
   const maxAgeSeconds = 60 * 60 * 8; // 8h
   const tablesDataPath = path.resolve(__dirname, ".data", "tables_v1.json");
+  const googleClientId = (env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '').trim();
+  const googleClientSecret = (env.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '').trim();
+  const googleRedirectUri = (env.GOOGLE_REDIRECT_URI || process.env.GOOGLE_REDIRECT_URI || '').trim();
+  const googleDefaultCalendarId = (env.GOOGLE_CALENDAR_ID || process.env.GOOGLE_CALENDAR_ID || 'primary').trim();
+  const googleOauthDataPath = path.resolve(__dirname, ".data", "google_calendar_oauth_v1.json");
 
   const base64url = (v: string): string => Buffer.from(v).toString('base64url');
   const sign = (payloadB64: string): string =>
@@ -120,6 +146,248 @@ export default defineConfig(({ mode }) => {
   const ensureDir = (dirPath: string) => {
     try {
       fs.mkdirSync(dirPath, { recursive: true });
+    } catch {
+      // no-op
+    }
+  };
+
+  type GoogleTokens = {
+    refresh_token: string;
+    access_token?: string;
+    expiry_date?: number;
+    scope?: string;
+    token_type?: string;
+    email?: string;
+    calendar_id?: string;
+    connected_at?: number;
+  };
+
+  type GoogleOAuthStore = Record<string, GoogleTokens>;
+  const oauthStateByNonce = new Map<string, { rid: string; createdAt: number }>();
+
+  const isGoogleConfigured = (): boolean =>
+    Boolean(googleClientId && googleClientSecret && googleRedirectUri);
+
+  const loadGoogleStore = (): GoogleOAuthStore => {
+    try {
+      if (!fs.existsSync(googleOauthDataPath)) return {};
+      const raw = fs.readFileSync(googleOauthDataPath, "utf8");
+      const parsed = JSON.parse(raw) as GoogleOAuthStore;
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const saveGoogleStore = (data: GoogleOAuthStore) => {
+    try {
+      ensureDir(path.dirname(googleOauthDataPath));
+      fs.writeFileSync(googleOauthDataPath, JSON.stringify(data, null, 2), "utf8");
+    } catch {
+      // no-op
+    }
+  };
+
+  const buildOAuthState = (rid: string): string => {
+    const nonce = crypto.randomBytes(16).toString("hex");
+    oauthStateByNonce.set(nonce, { rid, createdAt: Date.now() });
+    return nonce;
+  };
+
+  const consumeOAuthState = (nonce: string): string | null => {
+    const item = oauthStateByNonce.get(nonce);
+    if (!item) return null;
+    oauthStateByNonce.delete(nonce);
+    if (Date.now() - item.createdAt > 10 * 60_000) return null;
+    return item.rid;
+  };
+
+  const toErrorMessage = async (resp: Response): Promise<string> => {
+    try {
+      const txt = await resp.text();
+      return txt || `HTTP_${resp.status}`;
+    } catch {
+      return `HTTP_${resp.status}`;
+    }
+  };
+
+  const exchangeCodeForTokens = async (code: string): Promise<any> => {
+    const body = new URLSearchParams({
+      code,
+      client_id: googleClientId,
+      client_secret: googleClientSecret,
+      redirect_uri: googleRedirectUri,
+      grant_type: "authorization_code",
+    });
+    const resp = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    if (!resp.ok) {
+      throw new Error(await toErrorMessage(resp));
+    }
+    return await resp.json();
+  };
+
+  const refreshAccessToken = async (refreshToken: string): Promise<any> => {
+    const body = new URLSearchParams({
+      refresh_token: refreshToken,
+      client_id: googleClientId,
+      client_secret: googleClientSecret,
+      grant_type: "refresh_token",
+    });
+    const resp = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    if (!resp.ok) {
+      throw new Error(await toErrorMessage(resp));
+    }
+    return await resp.json();
+  };
+
+  const fetchGoogleUserEmail = async (accessToken: string): Promise<string | undefined> => {
+    try {
+      const resp = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!resp.ok) return undefined;
+      const body = (await resp.json()) as { email?: string };
+      return body.email;
+    } catch {
+      return undefined;
+    }
+  };
+
+  const getValidAccessToken = async (rid: string): Promise<string | null> => {
+    const store = loadGoogleStore();
+    const entry = store[rid];
+    if (!entry?.refresh_token) return null;
+
+    const now = Date.now();
+    if (entry.access_token && entry.expiry_date && now < entry.expiry_date - 30_000) {
+      return entry.access_token;
+    }
+
+    try {
+      const refreshed = await refreshAccessToken(entry.refresh_token);
+      const access = String(refreshed.access_token || "").trim();
+      if (!access) return null;
+      const expiresInSec = Number(refreshed.expires_in || 3600);
+      store[rid] = {
+        ...entry,
+        access_token: access,
+        expiry_date: now + Math.max(60, expiresInSec) * 1000,
+        scope: refreshed.scope || entry.scope,
+        token_type: refreshed.token_type || entry.token_type || "Bearer",
+      };
+      saveGoogleStore(store);
+      return access;
+    } catch {
+      return null;
+    }
+  };
+
+  const parseReservationStartEndIso = (
+    dateRaw: string,
+    timeRaw: string,
+    durationMin = 90
+  ): { startIso: string; endIso: string } | null => {
+    const date = String(dateRaw || "").trim();
+    const time = String(timeRaw || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    if (!/^\d{1,2}:\d{2}$/.test(time)) return null;
+    const start = new Date(`${date}T${time}:00`);
+    if (!Number.isFinite(start.getTime())) return null;
+    const end = new Date(start.getTime() + durationMin * 60_000);
+    return { startIso: start.toISOString(), endIso: end.toISOString() };
+  };
+
+  const buildCalendarEventPayload = (input: {
+    reservation: any;
+    restaurantName: string;
+    businessType: "hospitality" | "professional_services";
+  }) => {
+    const r = input.reservation || {};
+    const window = parseReservationStartEndIso(r.date, r.time, 90);
+    if (!window) return null;
+    const party = Number(r.partySize || 0);
+    const label = input.businessType === "professional_services" ? "Cita" : "Reserva";
+    const summary = `${label}: ${r.name || "Cliente"}${Number.isFinite(party) && party > 0 ? ` (${party})` : ""}`;
+    const notes: string[] = [];
+    notes.push(`Negocio: ${input.restaurantName}`);
+    notes.push(`Cliente: ${r.name || "-"}`);
+    notes.push(`Teléfono: ${r.phone || "-"}`);
+    notes.push(`Fecha: ${r.date || "-"} ${r.time || "-"}`);
+    if (Number.isFinite(party) && party > 0) notes.push(`Personas: ${party}`);
+    if (r.table_id) notes.push(`Mesa/Recurso: ${r.table_id}`);
+    if (r.notes) notes.push(`Notas: ${r.notes}`);
+    notes.push(`Reserva ID: ${r.id || "-"}`);
+    return {
+      summary,
+      description: notes.join("\n"),
+      start: { dateTime: window.startIso },
+      end: { dateTime: window.endIso },
+    };
+  };
+
+  const upsertGoogleCalendarEvent = async (
+    rid: string,
+    reservation: any,
+    restaurantName: string,
+    businessType: "hospitality" | "professional_services"
+  ): Promise<{ event_id?: string }> => {
+    const accessToken = await getValidAccessToken(rid);
+    if (!accessToken) return {};
+    const store = loadGoogleStore();
+    const calendarId = store[rid]?.calendar_id || googleDefaultCalendarId;
+    const payload = buildCalendarEventPayload({ reservation, restaurantName, businessType });
+    if (!payload) return {};
+    const existingEventId = String(reservation?.calendar_event_id || "").trim();
+    const base = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
+
+    if (existingEventId) {
+      const resp = await fetch(`${base}/${encodeURIComponent(existingEventId)}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (resp.ok) return { event_id: existingEventId };
+    }
+
+    const createResp = await fetch(base, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!createResp.ok) return {};
+    const created = (await createResp.json()) as { id?: string };
+    return { event_id: created.id };
+  };
+
+  const cancelGoogleCalendarEvent = async (rid: string, eventId: string): Promise<void> => {
+    const accessToken = await getValidAccessToken(rid);
+    if (!accessToken) return;
+    const store = loadGoogleStore();
+    const calendarId = store[rid]?.calendar_id || googleDefaultCalendarId;
+    if (!eventId) return;
+    try {
+      await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
     } catch {
       // no-op
     }
@@ -512,6 +780,197 @@ export default defineConfig(({ mode }) => {
     return json(res, 404, { error: "not_found" });
   };
 
+  const calendarMiddleware = async (req: any, res: any, next: any) => {
+    const url = req.url || "";
+    if (!url.startsWith("/api/calendar/")) return next();
+    const { path: pathname, query } = parseUrl(url);
+
+    if (req.method === "GET" && pathname === "/api/calendar/status") {
+      const auth = requireOwner(req);
+      if (!auth.ok) return json(res, 401, { error: "unauthorized" });
+      const rid = String(query.get("rid") || "").trim();
+      if (!rid) return json(res, 400, { error: "rid_required" });
+      const hasConfig = isGoogleConfigured();
+      const store = loadGoogleStore();
+      const entry = store[rid];
+      return json(res, 200, {
+        connected: Boolean(entry?.refresh_token),
+        email: entry?.email,
+        calendar_id: entry?.calendar_id || googleDefaultCalendarId,
+        has_config: hasConfig,
+      });
+    }
+
+    if (req.method === "GET" && pathname === "/api/calendar/connect") {
+      const auth = requireOwner(req);
+      if (!auth.ok) {
+        res.statusCode = 401;
+        res.end("unauthorized");
+        return;
+      }
+      if (!isGoogleConfigured()) {
+        res.statusCode = 400;
+        res.end("google_oauth_not_configured");
+        return;
+      }
+      const rid = String(query.get("rid") || "").trim();
+      if (!rid) {
+        res.statusCode = 400;
+        res.end("rid_required");
+        return;
+      }
+      const state = buildOAuthState(rid);
+      const params = new URLSearchParams({
+        client_id: googleClientId,
+        redirect_uri: googleRedirectUri,
+        response_type: "code",
+        access_type: "offline",
+        prompt: "consent",
+        include_granted_scopes: "true",
+        scope: "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email",
+        state,
+      });
+      res.statusCode = 302;
+      res.setHeader("Location", `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+      res.end();
+      return;
+    }
+
+    if (req.method === "GET" && pathname === "/api/calendar/callback") {
+      if (!isGoogleConfigured()) {
+        res.statusCode = 400;
+        res.end("google_oauth_not_configured");
+        return;
+      }
+      const code = String(query.get("code") || "").trim();
+      const state = String(query.get("state") || "").trim();
+      const error = String(query.get("error") || "").trim();
+      if (error) {
+        res.statusCode = 302;
+        res.setHeader("Location", `/#/owner?calendar=${encodeURIComponent(error)}`);
+        res.end();
+        return;
+      }
+      if (!code || !state) {
+        res.statusCode = 400;
+        res.end("invalid_oauth_callback");
+        return;
+      }
+      const rid = consumeOAuthState(state);
+      if (!rid) {
+        res.statusCode = 400;
+        res.end("invalid_state");
+        return;
+      }
+      try {
+        const tokens = await exchangeCodeForTokens(code);
+        const refreshToken = String(tokens.refresh_token || "").trim();
+        const accessToken = String(tokens.access_token || "").trim();
+        if (!refreshToken && !accessToken) {
+          throw new Error("missing_tokens");
+        }
+        const store = loadGoogleStore();
+        const prev = store[rid] || ({} as GoogleTokens);
+        const expiresIn = Number(tokens.expires_in || 3600);
+        const email = accessToken ? await fetchGoogleUserEmail(accessToken) : prev.email;
+        store[rid] = {
+          ...prev,
+          refresh_token: refreshToken || prev.refresh_token,
+          access_token: accessToken || prev.access_token,
+          expiry_date: accessToken ? Date.now() + Math.max(60, expiresIn) * 1000 : prev.expiry_date,
+          scope: tokens.scope || prev.scope,
+          token_type: tokens.token_type || prev.token_type || "Bearer",
+          email: email || prev.email,
+          calendar_id: prev.calendar_id || googleDefaultCalendarId,
+          connected_at: Date.now(),
+        };
+        saveGoogleStore(store);
+        res.statusCode = 302;
+        res.setHeader("Location", `/#/owner?rid=${encodeURIComponent(rid)}&calendar=connected`);
+        res.end();
+      } catch {
+        res.statusCode = 302;
+        res.setHeader("Location", `/#/owner?rid=${encodeURIComponent(rid)}&calendar=error`);
+        res.end();
+      }
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/api/calendar/disconnect") {
+      const auth = requireOwner(req);
+      if (!auth.ok) return json(res, 401, { error: "unauthorized" });
+      const bodyRaw = await readBody(req);
+      let payload: any = {};
+      try {
+        payload = bodyRaw ? JSON.parse(bodyRaw) : {};
+      } catch {
+        return json(res, 400, { error: "invalid_json" });
+      }
+      const rid = String(payload.rid || "").trim();
+      if (!rid) return json(res, 400, { error: "rid_required" });
+      const store = loadGoogleStore();
+      if (store[rid]) {
+        delete store[rid];
+        saveGoogleStore(store);
+      }
+      return json(res, 200, { ok: true });
+    }
+
+    if (req.method === "POST" && pathname === "/api/calendar/create_reservation_event") {
+      const bodyRaw = await readBody(req);
+      let payload: any = {};
+      try {
+        payload = bodyRaw ? JSON.parse(bodyRaw) : {};
+      } catch {
+        return json(res, 400, { error: "invalid_json" });
+      }
+      const rid = String(payload.rid || "").trim();
+      const reservation = payload.reservation || null;
+      const restaurantName = String(payload.restaurant_name || "").trim() || "Negocio";
+      const businessType =
+        payload.business_type === "professional_services" ? "professional_services" : "hospitality";
+      if (!rid || !reservation) return json(res, 400, { error: "invalid_payload" });
+      const result = await upsertGoogleCalendarEvent(rid, reservation, restaurantName, businessType);
+      return json(res, 200, result);
+    }
+
+    if (req.method === "POST" && pathname === "/api/calendar/update_reservation_event") {
+      const bodyRaw = await readBody(req);
+      let payload: any = {};
+      try {
+        payload = bodyRaw ? JSON.parse(bodyRaw) : {};
+      } catch {
+        return json(res, 400, { error: "invalid_json" });
+      }
+      const rid = String(payload.rid || "").trim();
+      const reservation = payload.reservation || null;
+      const restaurantName = String(payload.restaurant_name || "").trim() || "Negocio";
+      const businessType =
+        payload.business_type === "professional_services" ? "professional_services" : "hospitality";
+      if (!rid || !reservation) return json(res, 400, { error: "invalid_payload" });
+      const result = await upsertGoogleCalendarEvent(rid, reservation, restaurantName, businessType);
+      return json(res, 200, result);
+    }
+
+    if (req.method === "POST" && pathname === "/api/calendar/cancel_reservation_event") {
+      const bodyRaw = await readBody(req);
+      let payload: any = {};
+      try {
+        payload = bodyRaw ? JSON.parse(bodyRaw) : {};
+      } catch {
+        return json(res, 400, { error: "invalid_json" });
+      }
+      const rid = String(payload.rid || "").trim();
+      const reservation = payload.reservation || {};
+      const eventId = String(reservation.calendar_event_id || "").trim();
+      if (!rid || !eventId) return json(res, 200, { ok: true });
+      await cancelGoogleCalendarEvent(rid, eventId);
+      return json(res, 200, { ok: true });
+    }
+
+    return json(res, 404, { error: "not_found" });
+  };
+
   return {
     server: {
       port: 3000,
@@ -525,11 +984,13 @@ export default defineConfig(({ mode }) => {
           server.middlewares.use(authMiddleware);
           loadTablesFromDisk();
           server.middlewares.use(tablesMiddleware);
+          server.middlewares.use(calendarMiddleware);
         },
         configurePreviewServer(server) {
           server.middlewares.use(authMiddleware);
           loadTablesFromDisk();
           server.middlewares.use(tablesMiddleware);
+          server.middlewares.use(calendarMiddleware);
         }
       }
     ],

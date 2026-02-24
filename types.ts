@@ -18,6 +18,7 @@ export interface RestaurantConfig {
 export interface Restaurant {
   id: string; // UUID
   slug: string; // unique, user-editable (validated)
+  business_type: "hospitality" | "professional_services";
   name: string;
   whatsapp_number_e164: string; // unique
   status: "active" | "disabled";

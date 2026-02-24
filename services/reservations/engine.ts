@@ -190,8 +190,14 @@ export const ReservationEngine = {
 
       case 'cancel_reservation': {
         const { reservation_id } = action.payload;
+        const beforeCancel = ReservationRepository.getById(restaurantId, reservation_id);
         const result = ReservationRepository.cancel(restaurantId, reservation_id);
-        return { success: result };
+        return {
+          success: result,
+          data: beforeCancel
+            ? { ...beforeCancel, status: "cancelled" as const }
+            : undefined
+        };
       }
 
       case 'none':
