@@ -1,4 +1,5 @@
 import type { Reservation } from "../reservations/types";
+import { buildApiUrl } from "../apiBase";
 
 type CalendarStatus = {
   connected: boolean;
@@ -17,7 +18,7 @@ async function parseJson<T>(res: Response): Promise<T | null> {
 
 export async function fetchGoogleCalendarStatus(restaurantId: string): Promise<CalendarStatus> {
   try {
-    const res = await fetch(`/api/calendar/status?rid=${encodeURIComponent(restaurantId)}`, {
+    const res = await fetch(buildApiUrl(`/api/calendar/status?rid=${encodeURIComponent(restaurantId)}`), {
       method: "GET",
       credentials: "include",
     });
@@ -30,12 +31,12 @@ export async function fetchGoogleCalendarStatus(restaurantId: string): Promise<C
 }
 
 export function connectGoogleCalendar(restaurantId: string): void {
-  window.location.href = `/api/calendar/connect?rid=${encodeURIComponent(restaurantId)}`;
+  window.location.href = buildApiUrl(`/api/calendar/connect?rid=${encodeURIComponent(restaurantId)}`);
 }
 
 export async function disconnectGoogleCalendar(restaurantId: string): Promise<boolean> {
   try {
-    const res = await fetch(`/api/calendar/disconnect`, {
+    const res = await fetch(buildApiUrl("/api/calendar/disconnect"), {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -54,8 +55,9 @@ export async function syncCalendarCreate(
   businessType: "hospitality" | "professional_services"
 ): Promise<{ event_id?: string }> {
   try {
-    const res = await fetch(`/api/calendar/create_reservation_event`, {
+    const res = await fetch(buildApiUrl("/api/calendar/create_reservation_event"), {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         rid: restaurantId,
@@ -79,8 +81,9 @@ export async function syncCalendarUpdate(
   businessType: "hospitality" | "professional_services"
 ): Promise<{ event_id?: string }> {
   try {
-    const res = await fetch(`/api/calendar/update_reservation_event`, {
+    const res = await fetch(buildApiUrl("/api/calendar/update_reservation_event"), {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         rid: restaurantId,
@@ -102,8 +105,9 @@ export async function syncCalendarCancel(
   reservation: Reservation
 ): Promise<void> {
   try {
-    await fetch(`/api/calendar/cancel_reservation_event`, {
+    await fetch(buildApiUrl("/api/calendar/cancel_reservation_event"), {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         rid: restaurantId,

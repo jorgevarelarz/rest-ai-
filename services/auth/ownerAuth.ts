@@ -1,3 +1,5 @@
+import { buildApiUrl } from "../apiBase";
+
 interface SessionResponse {
   authenticated: boolean;
   username?: string;
@@ -13,7 +15,7 @@ async function parseJson<T>(res: Response): Promise<T | null> {
 
 export async function ownerSession(): Promise<SessionResponse> {
   try {
-    const res = await fetch("/api/auth/session", {
+    const res = await fetch(buildApiUrl("/api/auth/session"), {
       method: "GET",
       credentials: "include",
     });
@@ -27,7 +29,7 @@ export async function ownerSession(): Promise<SessionResponse> {
 
 export async function ownerLogin(username: string, password: string): Promise<boolean> {
   try {
-    const res = await fetch("/api/auth/login", {
+    const res = await fetch(buildApiUrl("/api/auth/login"), {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -43,7 +45,7 @@ export async function ownerLogin(username: string, password: string): Promise<bo
 
 export async function ownerLogout(): Promise<void> {
   try {
-    await fetch("/api/auth/logout", {
+    await fetch(buildApiUrl("/api/auth/logout"), {
       method: "POST",
       credentials: "include",
     });

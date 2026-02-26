@@ -5,6 +5,7 @@ import { RestaurantRepository } from "./restaurants/repository";
 import { RestaurantConfigRepository } from "./restaurants/configRepository";
 import { MenuRepository } from "./menu/repository";
 import { ReservationRepository } from "./reservations/repository";
+import { buildApiUrl } from "./apiBase";
 
 type SuggestedAlternative = { date: string; time: string };
 
@@ -258,7 +259,7 @@ No repitas preguntas ya respondidas.
   };
 
   const callViaServer = async (models: string[]): Promise<{ text?: string }> => {
-    const resp = await fetch("/api/ai/generate", {
+    const resp = await fetch(buildApiUrl("/api/ai/generate"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

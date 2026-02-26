@@ -1,9 +1,10 @@
 import type { RestaurantLayoutWall, RestaurantTable, TableStatus } from "../../types";
+import { buildApiUrl } from "../apiBase";
 
 export type TablesState = { tables: RestaurantTable[]; walls: RestaurantLayoutWall[] };
 
 export async function fetchTablesState(restaurantId: string): Promise<TablesState> {
-  const res = await fetch(`/api/tables/state?rid=${encodeURIComponent(restaurantId)}`, {
+  const res = await fetch(buildApiUrl(`/api/tables/state?rid=${encodeURIComponent(restaurantId)}`), {
     method: "GET",
     credentials: "include",
   });
@@ -19,7 +20,7 @@ export async function createTable(
   restaurantId: string,
   input: { name: string; capacity: number; zone?: string; notes?: string; kind?: RestaurantTable["kind"] }
 ): Promise<TablesState> {
-  const res = await fetch(`/api/tables/create`, {
+  const res = await fetch(buildApiUrl("/api/tables/create"), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -38,7 +39,7 @@ export async function patchTable(
   tableId: string,
   patch: Partial<Pick<RestaurantTable, "name" | "capacity" | "zone" | "notes" | "status" | "layout_x" | "layout_y" | "kind">>
 ): Promise<TablesState> {
-  const res = await fetch(`/api/tables/patch`, {
+  const res = await fetch(buildApiUrl("/api/tables/patch"), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -53,7 +54,7 @@ export async function patchTable(
 }
 
 export async function deleteTable(restaurantId: string, tableId: string): Promise<TablesState> {
-  const res = await fetch(`/api/tables/delete`, {
+  const res = await fetch(buildApiUrl("/api/tables/delete"), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -72,7 +73,9 @@ export function connectTablesStream(
   onState: (state: TablesState) => void,
   onError?: (err: unknown) => void
 ): () => void {
-  const es = new EventSource(`/api/tables/stream?rid=${encodeURIComponent(restaurantId)}`);
+  const es = new EventSource(buildApiUrl(`/api/tables/stream?rid=${encodeURIComponent(restaurantId)}`), {
+    withCredentials: true,
+  });
   const onMessage = (ev: MessageEvent) => {
     try {
       const parsed = JSON.parse(ev.data) as { tables?: RestaurantTable[]; walls?: RestaurantLayoutWall[] };
@@ -100,7 +103,7 @@ export async function createWall(
   restaurantId: string,
   input: Pick<RestaurantLayoutWall, "x" | "y" | "w" | "h"> & { kind?: RestaurantLayoutWall["kind"] }
 ): Promise<TablesState> {
-  const res = await fetch(`/api/tables/wall_create`, {
+  const res = await fetch(buildApiUrl("/api/tables/wall_create"), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -119,7 +122,7 @@ export async function patchWall(
   wallId: string,
   patch: Partial<Pick<RestaurantLayoutWall, "x" | "y" | "w" | "h">>
 ): Promise<TablesState> {
-  const res = await fetch(`/api/tables/wall_patch`, {
+  const res = await fetch(buildApiUrl("/api/tables/wall_patch"), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -134,7 +137,7 @@ export async function patchWall(
 }
 
 export async function deleteWall(restaurantId: string, wallId: string): Promise<TablesState> {
-  const res = await fetch(`/api/tables/wall_delete`, {
+  const res = await fetch(buildApiUrl("/api/tables/wall_delete"), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
