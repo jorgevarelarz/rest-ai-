@@ -1060,12 +1060,13 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: '0.0.0.0',
+      allowedHosts: true,
     },
     preview: {
       port: 3000,
       host: "0.0.0.0",
       strictPort: true,
-      allowedHosts: true,
+      allowedHosts: [".up.railway.app", "localhost", "127.0.0.1"],
     },
     plugins: [
       react(),

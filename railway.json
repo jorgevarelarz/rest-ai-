@@ -5,7 +5,7 @@
   },
   "deploy": {
     "startCommand": "npm run start",
-    "healthcheckPath": "/api/auth/session",
+    "healthcheckPath": "/",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
