@@ -31,6 +31,33 @@ export default defineConfig(({ mode }) => {
     process.env.OWNER_AUTH_SECRET ||
     'dev-only-owner-secret'
   ).trim();
+  const frontendOrigin = (
+    env.FRONTEND_ORIGIN ||
+    process.env.FRONTEND_ORIGIN ||
+    ""
+  ).trim().replace(/\/+$/, "");
+  const cookieDomain = (
+    env.OWNER_COOKIE_DOMAIN ||
+    process.env.OWNER_COOKIE_DOMAIN ||
+    ""
+  ).trim();
+  const ownerCookieSecureRaw = (
+    env.OWNER_COOKIE_SECURE ||
+    process.env.OWNER_COOKIE_SECURE ||
+    "true"
+  ).trim().toLowerCase();
+  const ownerCookieSecure = ownerCookieSecureRaw === "true";
+  const ownerCookieSameSiteRaw = (
+    env.OWNER_COOKIE_SAMESITE ||
+    process.env.OWNER_COOKIE_SAMESITE ||
+    (ownerCookieSecure ? "none" : "lax")
+  ).trim().toLowerCase();
+  const ownerCookieSameSite =
+    ownerCookieSameSiteRaw === "strict"
+      ? "Strict"
+      : ownerCookieSameSiteRaw === "none"
+        ? "None"
+        : "Lax";
 
   const cookieName = 'owner_session';
   const maxAgeSeconds = 60 * 60 * 8; // 8h
@@ -102,11 +129,69 @@ export default defineConfig(({ mode }) => {
     res.end(JSON.stringify(body));
   };
 
-  const setSessionCookie = (token: string): string =>
-    `${cookieName}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}`;
+  const allowedOrigins = new Set<string>([
+    frontendOrigin,
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+  ].filter(Boolean));
 
-  const clearSessionCookie = (): string =>
-    `${cookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+  const applyCors = (req: any, res: any): void => {
+    const origin = String(req.headers?.origin || "").trim();
+    if (origin && allowedOrigins.has(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+    }
+    const reqHeaders = String(req.headers?.["access-control-request-headers"] || "").trim();
+    res.setHeader("Access-Control-Allow-Headers", reqHeaders || "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  };
+
+  const apiCorsMiddleware = (req: any, res: any, next: any) => {
+    const url = String(req.url || "");
+    if (!url.startsWith("/api/")) return next();
+    applyCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
+    return next();
+  };
+
+  const setSessionCookie = (token: string): string => {
+    const parts = [
+      `${cookieName}=${encodeURIComponent(token)}`,
+      "Path=/",
+      "HttpOnly",
+      `SameSite=${ownerCookieSameSite}`,
+      `Max-Age=${maxAgeSeconds}`,
+    ];
+    if (ownerCookieSecure) parts.push("Secure");
+    if (cookieDomain) parts.push(`Domain=${cookieDomain}`);
+    return parts.join("; ");
+  };
+
+  const clearSessionCookie = (): string => {
+    const parts = [
+      `${cookieName}=`,
+      "Path=/",
+      "HttpOnly",
+      `SameSite=${ownerCookieSameSite}`,
+      "Max-Age=0",
+    ];
+    if (ownerCookieSecure) parts.push("Secure");
+    if (cookieDomain) parts.push(`Domain=${cookieDomain}`);
+    return parts.join("; ");
+  };
+
+  const buildOwnerRedirectUrl = (params: Record<string, string>): string => {
+    const base = frontendOrigin ? `${frontendOrigin}/#/owner` : "/#/owner";
+    const qs = new URLSearchParams(params).toString();
+    return qs ? `${base}?${qs}` : base;
+  };
 
   const authMiddleware = async (req: any, res: any, next: any) => {
     const url = req.url || '';
@@ -847,7 +932,7 @@ export default defineConfig(({ mode }) => {
       const error = String(query.get("error") || "").trim();
       if (error) {
         res.statusCode = 302;
-        res.setHeader("Location", `/#/owner?calendar=${encodeURIComponent(error)}`);
+        res.setHeader("Location", buildOwnerRedirectUrl({ calendar: error }));
         res.end();
         return;
       }
@@ -886,11 +971,11 @@ export default defineConfig(({ mode }) => {
         };
         saveGoogleStore(store);
         res.statusCode = 302;
-        res.setHeader("Location", `/#/owner?rid=${encodeURIComponent(rid)}&calendar=connected`);
+        res.setHeader("Location", buildOwnerRedirectUrl({ rid, calendar: "connected" }));
         res.end();
       } catch {
         res.statusCode = 302;
-        res.setHeader("Location", `/#/owner?rid=${encodeURIComponent(rid)}&calendar=error`);
+        res.setHeader("Location", buildOwnerRedirectUrl({ rid, calendar: "error" }));
         res.end();
       }
       return;
@@ -981,12 +1066,14 @@ export default defineConfig(({ mode }) => {
       {
         name: 'owner-auth-api',
         configureServer(server) {
+          server.middlewares.use(apiCorsMiddleware);
           server.middlewares.use(authMiddleware);
           loadTablesFromDisk();
           server.middlewares.use(tablesMiddleware);
           server.middlewares.use(calendarMiddleware);
         },
         configurePreviewServer(server) {
+          server.middlewares.use(apiCorsMiddleware);
           server.middlewares.use(authMiddleware);
           loadTablesFromDisk();
           server.middlewares.use(tablesMiddleware);
